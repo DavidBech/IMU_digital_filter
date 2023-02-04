@@ -24,7 +24,6 @@ class complementary_filter{
     float roll_rad;
     float alpha;
     unsigned measure_period_ms;
-    double const RAD_2_DEG = 57.2957795131f;
 };
 
 #endif //COMPLEMENTARY_FILTER_HPP_DB_

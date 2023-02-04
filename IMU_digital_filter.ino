@@ -3,9 +3,11 @@
 #include <Wire.h>
 
 #include "complementry_filter.hpp"
+#include "kalman_filter.hpp"
 
 Adafruit_MPU6050 mpu;
 complementary_filter comp_filter;
+kalman_filter kal_filter;
 
 void setup(void) {
   Serial.begin(115200);
@@ -30,7 +32,7 @@ void setup(void) {
 
 
 void loop() {
-  unsigned delay_ms = 10;
+  unsigned delay_ms = 100;
   float comp_filter_alpha = 0.05f;
   float accel[3];
   float gyro[3];
@@ -51,6 +53,8 @@ void loop() {
 
   comp_filter.new_measurement(accel, gyro);
   
+  kal_filter.new_measure(accel, gyro);
+
 
   /*
   Serial.print("AccelX:");
@@ -72,11 +76,17 @@ void loop() {
   Serial.print(g.gyro.z);
   Serial.print(",");
   */
-  Serial.print("PitchAngle:");
+  Serial.print("CompPitchAngle:");
   Serial.print(comp_filter.get_pitch_deg());
   Serial.print(",");
-  Serial.print("RollAngle:");
+  Serial.print("CompRollAngle:");
   Serial.print(comp_filter.get_roll_deg());
+  Serial.print(",");
+  Serial.print("KalPitchAngle:");
+  Serial.print(kal_filter.get_pitch_deg());
+  Serial.print(",");
+  Serial.print("KalRollAngle:");
+  Serial.print(kal_filter.get_roll_deg());
   Serial.print(",");
   Serial.print("Zero:");
   Serial.println(0);
