@@ -5,6 +5,7 @@
 #include "complementry_filter.hpp"
 
 Adafruit_MPU6050 mpu;
+complementary_filter comp_filter;
 
 void setup(void) {
   Serial.begin(115200);
@@ -27,36 +28,30 @@ void setup(void) {
   delay(100);
 }
 
-float phiHat_rad = 0.0f;
-float thetaHat_rad = 0.0f;
 
 void loop() {
-  double G_MPS2 = 9.81;
-  double alpha = 0.05f;
-  double rad_2_deg = 57.2957795131f; 
-  int delta_t_ms = 10;
+  unsigned delay_ms = 10;
+  float comp_filter_alpha = 0.05f;
+  float accel[3];
+  float gyro[3];
 
+  comp_filter.set_period_ms(delay_ms);
+  comp_filter.set_alpha(comp_filter_alpha);
   /* Get new sensor events with the readings */
+
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
 
-  float phiHat_acc_rad = atanf(a.acceleration.y/ a.acceleration.z);
-  float thetaHat_acc_rad = asinf(a.acceleration.x / G_MPS2);
+  accel[0] = a.acceleration.x;
+  accel[1] = a.acceleration.y;
+  accel[2] = a.acceleration.z;
+  gyro[0] = g.gyro.x;
+  gyro[1] = g.gyro.y;
+  gyro[2] = g.gyro.z;
 
-  float phiDot_rps = g.gyro.x + tanf(thetaHat_rad) * (sinf(phiHat_rad) * g.gyro.y + cosf(phiHat_rad) * g.gyro.z);
-  float thetaDot_rps =                               (cosf(phiHat_rad) * g.gyro.y - sinf(phiHat_rad) * g.gyro.z);
-
-  phiHat_rad = alpha * phiHat_acc_rad
-               + (1.0f - alpha) * (phiHat_rad + (delta_t_ms / 1000.0f) * phiDot_rps);
+  comp_filter.new_measurement(accel, gyro);
   
-  thetaHat_rad = alpha * thetaHat_acc_rad
-               + (1.0f - alpha) * (thetaHat_rad + (delta_t_ms / 1000.0f) * thetaDot_rps);
-  
-  float phi_deg = phiHat_rad * rad_2_deg;
-  float theta_deg = thetaHat_rad * rad_2_deg;
 
-
-  /* Print out the values */
   /*
   Serial.print("AccelX:");
   Serial.print(a.acceleration.x);
@@ -67,7 +62,6 @@ void loop() {
   Serial.print("AccelZ:");
   Serial.print(a.acceleration.z);
   Serial.print(", ");
-  */
   Serial.print("GyroX:");
   Serial.print(g.gyro.x);
   Serial.print(",");
@@ -77,15 +71,15 @@ void loop() {
   Serial.print("GyroZ:");
   Serial.print(g.gyro.z);
   Serial.print(",");
-  Serial.print("AnglePhi:");
-  Serial.print(phi_deg);
+  */
+  Serial.print("PitchAngle:");
+  Serial.print(comp_filter.get_pitch_deg());
   Serial.print(",");
-  Serial.print("AngleTheta:");
-  Serial.print(theta_deg);
+  Serial.print("RollAngle:");
+  Serial.print(comp_filter.get_roll_deg());
   Serial.print(",");
   Serial.print("Zero:");
   Serial.println(0);
-  delay(delta_t_ms);
-
+  delay(delay_ms);
   
 }
