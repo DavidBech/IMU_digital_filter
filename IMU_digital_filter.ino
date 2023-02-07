@@ -32,7 +32,7 @@ void setup(void) {
 
 
 void loop() {
-  unsigned delay_ms = 100;
+  unsigned delay_ms = 10;
   float comp_filter_alpha = 0.05f;
   float accel[3];
   float gyro[3];
@@ -89,7 +89,13 @@ void loop() {
   Serial.print(kal_filter.get_roll_deg());
   Serial.print(",");
   Serial.print("Zero:");
-  Serial.println(0);
+  Serial.print(0);
+  Serial.print(",");
+  Serial.print("Ninety:");
+  Serial.print(90);
+  Serial.print(",");
+  Serial.print("NegNinety:");
+  Serial.println(-90);
   delay(delay_ms);
   
 }

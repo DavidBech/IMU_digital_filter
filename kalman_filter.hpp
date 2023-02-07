@@ -20,21 +20,21 @@ class kalman_filter{
     void predict_update_state(BLA::Matrix<3>*);
     void predict_update_error_covariance(BLA::Matrix<3>*);
     void update(BLA::Matrix<3>*);
-    void update_correct_predictions();
-    void update_correct_error_covariance();
 
     void calc_F_state_trans();
     void calc_Jacobian_of_F(BLA::Matrix<3> *Gyro_Data, BLA::Matrix<2,2>*A);
+    void calc_h_Jacob(BLA::Matrix<3> *Accel_Data);
+    void calc_h_Jacob(BLA::Matrix<3> *Accel_Data, BLA::Matrix<3,2>*C_h_Jacob, BLA::Matrix<3> *transformed_measure_h);
 
     unsigned measure_count = 0;
-    unsigned predicts_per_update = 10;
+    unsigned predicts_per_update = 2;
 
 	/* 1   sin(phi)*tan(theta) cos(phi)*tan(theta)
 	   0   cos(phi)             -sin(phi)*/
 	BLA::Matrix<2, 3> F_state_trans;
 
-	/* (1)=phi/roll 
-	   (2)=theta/pitch */
+	/* (0)=phi/roll 
+	   (1)=theta/pitch */
 	BLA::Matrix<2> X_state_estimate;
 
     // Covariance Matrix

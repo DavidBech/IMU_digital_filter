@@ -5,6 +5,8 @@
 #include "kalman_filter.hpp"
 
 kalman_filter::kalman_filter(){
+	X_state_estimate(0)= 0;
+	X_state_estimate(1)= 0;
 
 	F_state_trans(0, 0) = 1;
 	F_state_trans(1, 0) = 0;
@@ -93,82 +95,53 @@ void kalman_filter::predict_update_error_covariance(BLA::Matrix<3> *Gyro_Data){
 }
 
 void kalman_filter::update(BLA::Matrix<3> *Accel_Data){
-	/* Normalise accelerometer readings */
-	float accNormFactor = 1.0f / sqrtf(ax_mps2 * ax_mps2 + ay_mps2 * ay_mps2 + az_mps2 * az_mps2);
+	BLA::Matrix<3> transformed_measure_h;
+	BLA::Matrix<3,2> C_h_jacob;
+	calc_h_Jacob(Accel_Data, &C_h_jacob, &transformed_measure_h);
 
-	float ax_norm 		= ax_mps2 * accNormFactor;
-	float ay_norm 		= ay_mps2 * accNormFactor;
-	float az_norm 		= az_mps2 * accNormFactor;
-
-	/* Compute Jacobian of output function C(x,u) = dh(x,u)/dx */
-	float sp = sinf(phi_r);
-	float cp = cosf(phi_r);
-	float st = sinf(theta_r);
-	float ct = cosf(theta_r);
-
-
-	float C[3][2] = {	{0.0f, 		ct},
-						{-cp * ct, 	sp * st},
-						{sp * ct, 	cp * st} };
-
-	/* Compute Kalman gain K = P * C' * (R + C * P * C ')^-1 in steps (note that C[0][0] = 0!) */
-
+	/* Compute Kalman gain K = P * C' * (R + C * P * C')^-1 */
 	/* P * C'*/
-	float PCt[2][3] = { {P[0][1] * C[0][1], P[0][0] * C[1][0] + P[0][1] * C[1][1], P[0][0] * C[2][0] + P[0][1] * C[2][1]},
-						{P[1][1] * C[0][1], P[1][0] * C[1][0] + P[1][1] * C[1][1], P[1][0] * C[2][0] + P[1][1] * C[2][1]} };
+	BLA::Matrix<2,3> P_times_C_trans = P_Error_Cov * (~C_h_jacob);
 
 	/* R + C * P * C' */
-	float RCPCt[3][3] = { 	{C[0][1] * PCt[1][0] + R[0],			C[0][1] * PCt[1][1], 									C[0][1] * PCt[1][2]},
-							{C[1][0] * PCt[0][0] + C[1][1] * PCt[1][0],	C[1][0] * PCt[0][1] + C[1][1] * PCt[1][1] + R[1],	C[1][0] * PCt[0][2] + C[1][1] * PCt[1][2]},
-							{C[2][0] * PCt[0][0] + C[2][1] * PCt[1][0],	C[2][0] * PCt[0][1] + C[2][1] * PCt[1][1],				C[2][0] * PCt[0][2] + C[2][1] * PCt[1][2] + R[2]} };
+	BLA::Matrix<3,3> R_plus_CPCt = R_Cov_Noise + (C_h_jacob * P_times_C_trans);
 
 	/* inv(R + C * P * C') */
-	float detMatInv = 1.0f / (RCPCt[0][0] * (RCPCt[2][2] * RCPCt[1][1] - RCPCt[2][1] * RCPCt[1][2])
-					- RCPCt[1][0] * (RCPCt[2][2] * RCPCt[0][1] - RCPCt[2][1] * RCPCt[0][2])
-					+ RCPCt[2][0] * (RCPCt[1][2] * RCPCt[0][1] - RCPCt[1][1] * RCPCt[0][2]));
+	BLA::Matrix<3,3> Inverse_Comp = BLA::Invert(R_plus_CPCt);
 
-	float matInv[3][3] = { 	{	RCPCt[2][2] * RCPCt[1][1] - RCPCt[2][1] * RCPCt[1][2], -(	RCPCt[2][2] * RCPCt[0][1] - RCPCt[2][1] * RCPCt[0][2]), 	RCPCt[1][2] * RCPCt[0][1] - RCPCt[1][1] * RCPCt[0][2] },
-							{-(	RCPCt[2][2] * RCPCt[1][0] - RCPCt[2][0] * RCPCt[1][2]), 	RCPCt[2][2] * RCPCt[0][0] - RCPCt[2][0] * RCPCt[0][2], -(	RCPCt[1][2] * RCPCt[0][0] - RCPCt[1][0] * RCPCt[0][2]) },
-							{	RCPCt[2][1] * RCPCt[1][0] - RCPCt[2][0] * RCPCt[1][1], -(	RCPCt[2][1] * RCPCt[0][0] - RCPCt[2][0] * RCPCt[0][1]), 	RCPCt[1][1] * RCPCt[0][0] - RCPCt[1][0] * RCPCt[0][1]} };
-
-	for (unsigned int i = 0; i < 3; i++) {
-
-		for (unsigned int j = 0; j < 3; j++) {
-
-			matInv[i][j] *= detMatInv;
-
-		}
-
-	}
-
-	/* C' * inv(R + C * P * C') */
-	float CtmatInv[2][3] = { 	{						  C[1][0] * matInv[1][0] + C[2][0] * matInv[2][0], 							C[1][0] * matInv[1][1] + C[2][0] * matInv[2][1], 						  C[1][0] * matInv[1][2] + C[2][0] * matInv[2][2]},
-								{C[0][1] * matInv[0][0] + C[1][1] * matInv[1][0] + C[2][1] * matInv[2][0], C[0][1] * matInv[0][1] + C[1][1] * matInv[1][1] + C[2][1] * matInv[2][1], C[0][1] * matInv[0][2] + C[1][1] * matInv[1][2] + C[2][1] * matInv[2][2]} };
-
-	/* K = P * C' * inv(R + C * P * C') */
-	float K[2][3] = { 	{P[0][0] * CtmatInv[0][0] + P[0][1] * CtmatInv[1][0], P[0][0] * CtmatInv[0][1] + P[0][1] * CtmatInv[1][1], P[0][0] * CtmatInv[0][2] + P[0][1] * CtmatInv[1][2]},
-						{P[1][0] * CtmatInv[0][0] + P[1][1] * CtmatInv[1][0], P[1][0] * CtmatInv[0][1] + P[1][1] * CtmatInv[1][1], P[1][0] * CtmatInv[0][2] + P[1][1] * CtmatInv[1][2]} };
-
-	/* Update state covariance matrix P(n+1) = (I - K * C) * P(n) */
-	float IminKC[2][2] = { 	{1.0f - (K[0][1] * C[1][0] + K[1][0] * C[2][0]), -(K[0][1] * C[1][1] + K[1][0] * C[2][1])},
-							{-(K[1][1] * C[1][0] + K[1][2] * C[2][0]), 1.0f - (K[1][1] * C[1][1] + K[1][2] * C[2][1])} };
-
-	float Pnew[2][2] = { 	{IminKC[0][0] * P[0][0] + IminKC[0][1] * P[1][0], IminKC[0][0] * P[0][1] + IminKC[0][1] * P[1][1]},
-							{IminKC[1][0] * P[0][0] + IminKC[1][1] * P[1][0], IminKC[1][0] * P[0][1] + IminKC[1][1] * P[1][1]} };
-
-	P[0][0] = Pnew[0][0]; P[0][1] = Pnew[0][1];
-	P[1][0] = Pnew[1][0]; P[1][1] = Pnew[1][1];
-
-	/* Compute output function h(x,u) */
-	float h[3] = {	 sinf(theta_r),
-					-cosf(theta_r) * sinf(phi_r),
-					-cosf(theta_r) * cosf(phi_r) };
+	BLA::Matrix<2,3> Kalman_Gain = P_times_C_trans * Inverse_Comp;
 
 	/* Update state estimate x(n+1) = x(n) + K * (y - h) */
-	phi_r 		= K[0][0] * (ax_norm - h[0]) + K[0][1] * (ay_norm - h[1]) + K[0][2] * (az_norm - h[2]);
-	theta_r 	= K[1][0] * (ax_norm - h[0]) + K[1][1] * (ay_norm - h[1]) + K[1][2] * (az_norm - h[2]);
+	X_state_estimate = X_state_estimate + Kalman_Gain * (*Accel_Data - transformed_measure_h);
+
+	BLA::Matrix<2,2> I;
+
+	I(0,0) = 1;
+	I(0,1) = 0;
+	I(1,0) = 0;
+	I(1,1) = 1;
+	P_Error_Cov = (I - Kalman_Gain * C_h_jacob) * P_Error_Cov;
 }
 
+void kalman_filter::calc_h_Jacob(BLA::Matrix<3> *Accel_Data, BLA::Matrix<3,2>*C_h_Jacob, BLA::Matrix<3>*transformed_measure_h){
+	BLA::Matrix<3,2> &C = *C_h_Jacob;
+	BLA::Matrix<3> &h = *transformed_measure_h;
+	float sin_phi = sinf(X_state_estimate(0));
+	float cos_phi = cosf(X_state_estimate(0));
+	float sin_the = sinf(X_state_estimate(1));
+	float cos_the = cosf(X_state_estimate(1));
+	C(0,0) = 0.0f;
+	C(0,1) = cos_the;
+	C(1,0) = -cos_phi * cos_the;
+	C(1,1) = sin_phi * sin_the;
+	C(2,0) = sin_phi * cos_the;
+	C(2,1) = cos_phi * sin_the;
+
+	h(0) = sin_the;
+	h(1) = -cos_the * sin_phi;
+	h(2) = -cos_the * cos_phi;
+	h *= G_MPS2;
+}
 
 float kalman_filter::get_pitch_rad(){
     return X_state_estimate(2);
@@ -184,12 +157,4 @@ float kalman_filter::get_pitch_deg(){
 
 float kalman_filter::get_roll_deg(){
     return get_roll_rad() * RAD_2_DEG;
-}
-
-void kalman_filter::update_correct_predictions(){
-
-}
-
-void kalman_filter::update_correct_error_covariance(){
-
 }
