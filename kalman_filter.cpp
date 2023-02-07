@@ -19,14 +19,15 @@ kalman_filter::kalman_filter(){
 	Q_Cov_Noise(1,0) = 0.01f;
 	Q_Cov_Noise(0,1) = 0.00f;
 
-	R_Cov_Noise(0,0,0) = 0.01f;
-	R_Cov_Noise(0,0,1) = 0.00f;
-	R_Cov_Noise(0,1,0) = 0.00f;
-	R_Cov_Noise(0,1,1) = 0.01f;
-	R_Cov_Noise(1,0,0) = 0.00f;
-	R_Cov_Noise(1,0,1) = 0.00f;
-	R_Cov_Noise(1,1,0) = 0.00f;
-	R_Cov_Noise(1,1,1) = 0.01f;
+	R_Cov_Noise(0,0) = 0.01f;
+	R_Cov_Noise(0,1) = 0.00f;
+	R_Cov_Noise(0,2) = 0.00f;
+	R_Cov_Noise(1,0) = 0.00f;
+	R_Cov_Noise(1,1) = 0.01f;
+	R_Cov_Noise(1,2) = 0.00f;
+	R_Cov_Noise(2,0) = 0.00f;
+	R_Cov_Noise(2,1) = 0.00f;
+	R_Cov_Noise(2,2) = 0.01f;
 
     sampleTime_s = (10.0f) / 1000.0f; // 10ms
 }
@@ -59,7 +60,7 @@ void kalman_filter::predict(BLA::Matrix<3> *Gyro_Data){
 void kalman_filter::predict_update_state(BLA::Matrix<3> *Gyro_Data){
 	// x(n+1) = x(n) + t * f(x(n), u)
 	calc_F_state_trans();
-	X_state_estimate = X_state_estimate + (sampleTime_s * F_state_trans * *Gyro_Data);
+	X_state_estimate = X_state_estimate + (F_state_trans * *Gyro_Data) * sampleTime_s;
 }
 
 void kalman_filter::calc_F_state_trans(){
@@ -69,8 +70,9 @@ void kalman_filter::calc_F_state_trans(){
 	F_state_trans(1, 2) = sin(X_state_estimate(0));
 }
 
-void kalman_filter::calc_Jacobian_of_F(BLA::Matrix<3> *Gyro_Data, BLA::Matrix<2,2>*A){
+void kalman_filter::calc_Jacobian_of_F(BLA::Matrix<3> *Gyro_Data, BLA::Matrix<2,2>*A_in){
 	BLA::Matrix<3> &GD = *Gyro_Data;
+	BLA::Matrix<2,2> &A = *A_in;
 	float sin_phi = sinf(X_state_estimate(0));
 	float cos_phi = cosf(X_state_estimate(0));
 	float sec_the = 1.0f / cosf(X_state_estimate(1));
@@ -87,10 +89,10 @@ void kalman_filter::predict_update_error_covariance(BLA::Matrix<3> *Gyro_Data){
 	BLA::Matrix<2,2> A_Jacob_F;
 	calc_Jacobian_of_F(Gyro_Data, &A_Jacob_F);
 
-	P_Error_Cov = P_Error_Cov + sampleTime_s * (A_Jacob_F * P_Error_Cov + P_Error_Cov * ~A_Jacob_F + Q_Cov_Noise);
+	P_Error_Cov = P_Error_Cov + (A_Jacob_F * P_Error_Cov + P_Error_Cov * ~A_Jacob_F + Q_Cov_Noise) * sampleTime_s;
 }
 
-void kalman_filter::update(BLM::Matrix<3> *Accel_Data){
+void kalman_filter::update(BLA::Matrix<3> *Accel_Data){
 	/* Normalise accelerometer readings */
 	float accNormFactor = 1.0f / sqrtf(ax_mps2 * ax_mps2 + ay_mps2 * ay_mps2 + az_mps2 * az_mps2);
 
