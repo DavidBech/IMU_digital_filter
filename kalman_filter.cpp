@@ -1,84 +1,96 @@
+#include <BasicLinearAlgebra.h>
 #include <math.h>
 
 #include "IMU_CONST.hpp"
 #include "kalman_filter.hpp"
 
 kalman_filter::kalman_filter(){
-    phi_r = 0.0f;
-    theta_r = 0.0f;
 
-    P[0][0] = 0.001f;
-    P[0][1] = 0.0f;
-    P[1][0] = 0.0f;
-    P[1][1] = 0.001f;
+	F_state_trans(0, 0) = 1;
+	F_state_trans(1, 0) = 0;
 
-    //TODO: tune Q and R properly
-    Q[0] = 0.0f;
-    Q[1] = 0.0f;
+	P_Error_Cov(0,0) = 0.0f;
+	P_Error_Cov(0,1) = 0.0f;
+	P_Error_Cov(1,0) = 0.0f;
+	P_Error_Cov(0,1) = 0.0f;
 
-    R[0] = 0.0f;
-    R[1] = 0.0f;
-    R[2] = 0.0f;
+	Q_Cov_Noise(0,0) = 0.01f;
+	Q_Cov_Noise(0,1) = 0.00f;
+	Q_Cov_Noise(1,0) = 0.01f;
+	Q_Cov_Noise(0,1) = 0.00f;
 
-    sampleTime_s = (100.0f) / 1000; // 100ms
+	R_Cov_Noise(0,0,0) = 0.01f;
+	R_Cov_Noise(0,0,1) = 0.00f;
+	R_Cov_Noise(0,1,0) = 0.00f;
+	R_Cov_Noise(0,1,1) = 0.01f;
+	R_Cov_Noise(1,0,0) = 0.00f;
+	R_Cov_Noise(1,0,1) = 0.00f;
+	R_Cov_Noise(1,1,0) = 0.00f;
+	R_Cov_Noise(1,1,1) = 0.01f;
+
+    sampleTime_s = (10.0f) / 1000.0f; // 10ms
 }
 
 void kalman_filter::new_measure(float accel[3], float gyro[3]){
-	float new_gyro[3];
-	float new_accel[3];
-	new_accel[0] = -accel[1];
-	new_accel[1] = -accel[0];
-	new_accel[2] = -accel[2];
+	BLA::Matrix<3> Gyro_Data;
+	Gyro_Data(0) = gyro[0];
+	Gyro_Data(1) = gyro[1];
+	Gyro_Data(2) = gyro[2];
 
-	new_gyro[0] = -gyro[1];
-	new_gyro[1] = -gyro[0];
-	new_gyro[2] = -gyro[2];
-
-    predict(new_gyro[0], new_gyro[1], new_gyro[2]);
+	predict(&Gyro_Data);
 
     ++measure_count;
     if(measure_count == predicts_per_update){
-        update(new_accel[0], new_accel[1], new_accel[2]);
+		BLA::Matrix<3> Accel_Data;
+		Accel_Data(0) = accel[0];
+		Accel_Data(1) = accel[1];
+		Accel_Data(2) = accel[2];
+        update(&Accel_Data);
         measure_count = 0;
     }
 }
 
+void kalman_filter::predict(BLA::Matrix<3> *Gyro_Data){
+	predict_update_state(Gyro_Data);
 
-void kalman_filter::predict(float p_rps, float q_rps, float r_rps){
-	/* Pre-compute trigonometric quantities */
-	float sp = sinf(phi_r);
-	float cp = cosf(phi_r);
-	float tt = tanf(theta_r);
-
-	/* Compute state transition function dx/dt = f(x,u) */
-	float dphidt	= p_rps + tt * (q_rps * sp + r_rps * cp);
-	float dthetadt	= 				q_rps * cp - r_rps * sp;
-
-	/* Update state estimates (x(n+1) = x(n) + T * dx/dt) */
-	phi_r 	+= sampleTime_s * dphidt;
-	theta_r	+= sampleTime_s * dthetadt;
-
-	/* Re-compute trigonometric quantities */
-	sp 			= sinf(phi_r);
-	cp 			= cosf(phi_r);
-	tt 			= tanf(theta_r);
-	float ctInv = 1.0f / cosf(theta_r);
-
-	/* Compute Jacobian of state transition function A(x,u) = df(x,u)/dx */
-	float A[2][2] =
-	{ 	{ tt * (q_rps * cp - r_rps * sp), (q_rps * sp + r_rps * cp) * ctInv * ctInv },
-		{ -(q_rps * sp + r_rps * cp), 	  0.0f } };
-
-	/* Update state covariance matrix P(n+1) = P(n) + T * (A * P(n) + P(n) * A' + Q) (note that A[1][1] = 0!) */
-	float Pnew[2][2] =
-	{	{A[0][0] * P[0][0] + A[0][1] * P[1][0] + P[0][0] * A[0][0] + P[0][1] * A[1][0] + Q[0], A[0][0] * P[0][1] + A[0][1] * P[1][1] + P[0][0] * A[0][1]},
-		{A[1][0] * P[0][0] + P[1][0] * A[0][0] + P[1][1] * A[1][0],                            A[1][0] * P[0][1] + P[1][0] * A[0][1] + Q[1]} };
-
-	P[0][0] += sampleTime_s * Pnew[0][0]; P[0][1] += sampleTime_s * Pnew[0][1];
-	P[1][0] += sampleTime_s * Pnew[1][0]; P[1][1] += sampleTime_s * Pnew[1][1];
+	predict_update_error_covariance(Gyro_Data);
 }
 
-void kalman_filter::update(float ax_mps2, float ay_mps2, float az_mps2){
+void kalman_filter::predict_update_state(BLA::Matrix<3> *Gyro_Data){
+	// x(n+1) = x(n) + t * f(x(n), u)
+	calc_F_state_trans();
+	X_state_estimate = X_state_estimate + (sampleTime_s * F_state_trans * *Gyro_Data);
+}
+
+void kalman_filter::calc_F_state_trans(){
+	F_state_trans(0, 1) = sin(X_state_estimate(0)) * tan(X_state_estimate(1));
+	F_state_trans(0, 2) = cos(X_state_estimate(0)) * tan(X_state_estimate(1));
+	F_state_trans(1, 1) = cos(X_state_estimate(0));
+	F_state_trans(1, 2) = sin(X_state_estimate(0));
+}
+
+void kalman_filter::calc_Jacobian_of_F(BLA::Matrix<3> *Gyro_Data, BLA::Matrix<2,2>*A){
+	BLA::Matrix<3> &GD = *Gyro_Data;
+	float sin_phi = sinf(X_state_estimate(0));
+	float cos_phi = cosf(X_state_estimate(0));
+	float sec_the = 1.0f / cosf(X_state_estimate(1));
+	float tan_the = tanf(X_state_estimate(1));
+	A(0,0) = (GD(1)*cos_phi - GD(3)*sin_phi) * tan_the; // d phi / d phi
+	A(0,1) = (GD(1)*sin_phi	+ GD(3)*cos_phi) * sec_the * sec_the; // d phi / d theta
+	A(1,0) = -GD(1)*sin_phi - GD(2)*cos_phi; // d theta / d phi
+	A(1,1) = 0.0f; // d theta / d theta
+}
+
+void kalman_filter::predict_update_error_covariance(BLA::Matrix<3> *Gyro_Data){
+	// P(n+1) = P(n) + t(A P(n) + P(n) ~A + Q)
+	// A is Jacobian of F, ~A is transposition of A
+	BLA::Matrix<2,2> A_Jacob_F;
+	calc_Jacobian_of_F(Gyro_Data, &A_Jacob_F);
+
+	P_Error_Cov = P_Error_Cov + sampleTime_s * (A_Jacob_F * P_Error_Cov + P_Error_Cov * ~A_Jacob_F + Q_Cov_Noise);
+}
+
+void kalman_filter::update(BLM::Matrix<3> *Accel_Data){
 	/* Normalise accelerometer readings */
 	float accNormFactor = 1.0f / sqrtf(ax_mps2 * ax_mps2 + ay_mps2 * ay_mps2 + az_mps2 * az_mps2);
 
@@ -157,11 +169,11 @@ void kalman_filter::update(float ax_mps2, float ay_mps2, float az_mps2){
 
 
 float kalman_filter::get_pitch_rad(){
-    return theta_r;
+    return X_state_estimate(2);
 }
 
 float kalman_filter::get_roll_rad(){
-    return phi_r;
+    return X_state_estimate(1);
 }
 
 float kalman_filter::get_pitch_deg(){
@@ -172,3 +184,10 @@ float kalman_filter::get_roll_deg(){
     return get_roll_rad() * RAD_2_DEG;
 }
 
+void kalman_filter::update_correct_predictions(){
+
+}
+
+void kalman_filter::update_correct_error_covariance(){
+
+}
