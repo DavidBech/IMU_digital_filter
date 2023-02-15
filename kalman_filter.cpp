@@ -14,12 +14,12 @@ kalman_filter::kalman_filter(){
 	P_Error_Cov(0,0) = 0.0f;
 	P_Error_Cov(0,1) = 0.0f;
 	P_Error_Cov(1,0) = 0.0f;
-	P_Error_Cov(0,1) = 0.0f;
+	P_Error_Cov(1,1) = 0.0f;
 
 	Q_Cov_Noise(0,0) = 0.01f;
 	Q_Cov_Noise(0,1) = 0.00f;
 	Q_Cov_Noise(1,0) = 0.01f;
-	Q_Cov_Noise(0,1) = 0.00f;
+	Q_Cov_Noise(1,1) = 0.00f;
 
 	R_Cov_Noise(0,0) = 0.01f;
 	R_Cov_Noise(0,1) = 0.00f;
@@ -79,9 +79,9 @@ void kalman_filter::calc_Jacobian_of_F(BLA::Matrix<3> *Gyro_Data, BLA::Matrix<2,
 	float cos_phi = cosf(X_state_estimate(0));
 	float sec_the = 1.0f / cosf(X_state_estimate(1));
 	float tan_the = tanf(X_state_estimate(1));
-	A(0,0) = (GD(1)*cos_phi - GD(3)*sin_phi) * tan_the; // d phi / d phi
-	A(0,1) = (GD(1)*sin_phi	+ GD(3)*cos_phi) * sec_the * sec_the; // d phi / d theta
-	A(1,0) = -GD(1)*sin_phi - GD(2)*cos_phi; // d theta / d phi
+	A(0,0) = (GD(0)*cos_phi - GD(2)*sin_phi) * tan_the; // d phi / d phi
+	A(0,1) = (GD(0)*sin_phi	+ GD(2)*cos_phi) * sec_the * sec_the; // d phi / d theta
+	A(1,0) = -GD(0)*sin_phi - GD(1)*cos_phi; // d theta / d phi
 	A(1,1) = 0.0f; // d theta / d theta
 }
 
@@ -91,7 +91,7 @@ void kalman_filter::predict_update_error_covariance(BLA::Matrix<3> *Gyro_Data){
 	BLA::Matrix<2,2> A_Jacob_F;
 	calc_Jacobian_of_F(Gyro_Data, &A_Jacob_F);
 
-	P_Error_Cov = P_Error_Cov + (A_Jacob_F * P_Error_Cov + P_Error_Cov * ~A_Jacob_F + Q_Cov_Noise) * sampleTime_s;
+	P_Error_Cov = P_Error_Cov + (A_Jacob_F * P_Error_Cov * ~A_Jacob_F + Q_Cov_Noise) * sampleTime_s; //ansley
 }
 
 void kalman_filter::update(BLA::Matrix<3> *Accel_Data){
@@ -144,11 +144,11 @@ void kalman_filter::calc_h_Jacob(BLA::Matrix<3> *Accel_Data, BLA::Matrix<3,2>*C_
 }
 
 float kalman_filter::get_pitch_rad(){
-    return X_state_estimate(2);
+    return X_state_estimate(1);
 }
 
 float kalman_filter::get_roll_rad(){
-    return X_state_estimate(1);
+    return X_state_estimate(0);
 }
 
 float kalman_filter::get_pitch_deg(){
