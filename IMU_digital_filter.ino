@@ -23,7 +23,7 @@ void setup(void) {
     }
   }
 
-  mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
+  mpu.setAccelerometerRange(MPU6050_RANGE_4_G);
   mpu.setGyroRange(MPU6050_RANGE_250_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
   Serial.println("");
@@ -44,13 +44,20 @@ void loop() {
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
 
-  accel[0] = a.acceleration.x;
+  accel[0] = -a.acceleration.y; // apparently the axes are flipped for the MPU6050 compared to our filter. Might not be necessary
+  accel[1] = -a.acceleration.x;
+  accel[2] = -a.acceleration.z;
+  gyro[0] = -g.gyro.y;
+  gyro[1] = -g.gyro.x;
+  gyro[2] = -g.gyro.z;
+/*
+  accel[0] = a.acceleration.x; 
   accel[1] = a.acceleration.y;
   accel[2] = a.acceleration.z;
   gyro[0] = g.gyro.x;
   gyro[1] = g.gyro.y;
   gyro[2] = g.gyro.z;
-
+*/
   comp_filter.new_measurement(accel, gyro);
   
   kal_filter.new_measure(accel, gyro);
@@ -87,6 +94,9 @@ void loop() {
   Serial.print(",");
   Serial.print("KalRollAngle:");
   Serial.print(kal_filter.get_roll_deg());
+  Serial.print(",");
+  Serial.print("KalYawAngle:");
+  Serial.print(kal_filter.get_yaw_deg());
   Serial.print(",");
   Serial.print("Zero:");
   Serial.print(0);
