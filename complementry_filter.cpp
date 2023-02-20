@@ -31,7 +31,7 @@ float complementary_filter::get_pitch_rad(){
 float complementary_filter::get_roll_rad(){
     return roll_rad;
 }
-
+// Elias Fucking Around with Git
 float complementary_filter::get_pitch_deg(){
     return get_pitch_rad() * RAD_2_DEG;
 }
