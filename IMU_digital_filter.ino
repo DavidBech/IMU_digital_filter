@@ -6,9 +6,17 @@
 
 #include "complementry_filter.hpp"
 #include "kalman_filter.hpp"
+#include "IMU_CONST.hpp"
+#include <imuFilter.h>
+
+void get_gyro_measure(float * gyro);
+void get_accel_measure(float* accel);
 
 complementary_filter comp_filter;
 kalman_filter kal_filter;
+
+
+imuFilter fusion;
 
 #define NINEAXIS
 
@@ -24,6 +32,7 @@ ICM_20948_I2C myICM;
 #endif
 
 #ifdef SIXAIXS
+sensors_event_t a, g, temp;
 Adafruit_MPU6050 mpu;
 #endif
 
@@ -67,56 +76,54 @@ void setup(void) {
 
   #endif
 
+  #ifdef NINEAXIS
+    myICM.getAGMT(); 
+  #endif
+
+  #ifdef SIXAXIS
+    mpu.getEvent(&a, &g, &temp);
+  #endif
+  float accel_setup[3];
+  get_accel_measure(&accel_setup[0]);
+  fusion.setup(accel_setup[0], accel_setup[1], accel_setup[2]);
+  
+  float angle = 45 * DEG_TO_RAD;                // angle in radians to rotate heading about z-axis
+  fusion.rotateHeading( angle, LARGE_ANGLE );
+
   Serial.println("");
   delay(100);
 }
 
 
 void loop() {
-  unsigned delay_ms = 300;
+  unsigned delay_ms = 100;
   float comp_filter_alpha = 0.05f;
   float accel[3];
   float gyro[3];
 
-  comp_filter.set_period_ms(delay_ms);
-  comp_filter.set_alpha(comp_filter_alpha);
-  /* Get new sensor events with the readings */
+  //comp_filter.set_period_ms(delay_ms);
+  //comp_filter.set_alpha(comp_filter_alpha);
+
 
   #ifdef NINEAXIS
   if (myICM.dataReady()) {
     myICM.getAGMT(); 
-    //printScaledAGMT(&myICM);
-    accel[0] = myICM.accX() *9.81f/1000.0f;
-    accel[1] = myICM.accY() *9.81f/1000.0f;
-    accel[2] = myICM.accZ() *9.81f/1000.0f;
-    gyro[0] = myICM.gyrX() *3.14f/180.0f;
-    gyro[1] = myICM.gyrY() *3.14f/180.0f;
-    gyro[2] = myICM.gyrZ() *3.14f/180.0f;
-
-    delay(delay_ms);
   } else {
     SERIAL_PORT.println("Waiting for data");
-    delay(500);
   }
-
   #endif
 
   #ifdef SIXAXIS
-  sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
-
-  accel[0] = a.acceleration.x;
-  accel[1] = a.acceleration.y;
-  accel[2] = a.acceleration.z;
-  gyro[0] = g.gyro.x;
-  gyro[1] = g.gyro.y;
-  gyro[2] = g.gyro.z;
   #endif
-
-  comp_filter.new_measurement(accel, gyro);
   
-  kal_filter.new_measure(accel, gyro);
+  get_accel_measure(&accel[0]);
+  get_gyro_measure(&gyro[0]);
 
+  //comp_filter.new_measurement(accel, gyro);
+  
+  //kal_filter.new_measure(accel, gyro);
+  fusion.update(  gyro[0], gyro[1], gyro[2], accel[0], accel[1], accel[2] );  
 
   /*
   Serial.print("AccelX:");
@@ -138,19 +145,27 @@ void loop() {
   Serial.print(gyro[2]);
   Serial.print(",");
   */
+  /*
   Serial.print("CompPitchAngle:");
   Serial.print(comp_filter.get_pitch_deg());
   Serial.print(",");
   Serial.print("CompRollAngle:");
   Serial.print(comp_filter.get_roll_deg());
   Serial.print(",");
+
   Serial.print("KalPitchAngle:");
   Serial.print(kal_filter.get_pitch_deg());
   Serial.print(",");
   Serial.print("KalRollAngle:");
   Serial.print(kal_filter.get_roll_deg());
   Serial.print(",");
-  
+  */
+  Serial.print("FusionPitchAngle:");
+  Serial.print(fusion.pitch() * RAD_2_DEG);
+  Serial.print(",");
+  Serial.print("FusionRollAngle:");
+  Serial.print(fusion.roll() * RAD_2_DEG);
+  Serial.print(",");
   Serial.print("Zero:");
   Serial.print(0);
   Serial.print(",");
@@ -162,3 +177,47 @@ void loop() {
   delay(delay_ms);
   
 }
+
+void get_gyro_measure(float * gyro){
+#ifdef NINEAXIS
+    gyro[0] = myICM.gyrX() *3.14f/180.0f;
+    gyro[1] = myICM.gyrY() *3.14f/180.0f;
+    gyro[2] = myICM.gyrZ() *3.14f/180.0f;
+#endif
+
+#ifdef SIXAXIS
+    gyro[0] = g.gyro.x;
+    gyro[1] = g.gyro.y;
+    gyro[2] = g.gyro.z;
+#endif
+}
+
+
+void get_accel_measure(float* accel){
+#ifdef NINEAXIS
+    accel[0] = myICM.accX() *9.81f/1000.0f;
+    accel[1] = myICM.accY() *9.81f/1000.0f;
+    accel[2] = myICM.accZ() *9.81f/1000.0f;
+#endif
+
+#ifdef SIXAXIS
+    accel[0] = a.acceleration.x;
+    accel[1] = a.acceleration.y;
+    accel[2] = a.acceleration.z;
+#endif
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
