@@ -31,7 +31,7 @@ kalman_filter::kalman_filter(){
 	R_Cov_Noise(2,1) = 0.00f;
 	R_Cov_Noise(2,2) = 0.01f;
 
-    sampleTime_s = (10.0f) / 1000.0f; // 10ms
+    sampleTime_s = (300.0f) / 1000.0f; // 300ms
 }
 
 void kalman_filter::new_measure(float accel[3], float gyro[3]){
