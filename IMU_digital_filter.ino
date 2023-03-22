@@ -2,7 +2,7 @@
 
 #define SERIAL_PORT Serial
 
-//#define USE_2_SENSORS
+#define USE_2_SENSORS
 
 #define WIRE_PORT Wire // Your desired Wire port.      Used when "USE_SPI" is not defined
 // The value of the last bit of the I2C address.
