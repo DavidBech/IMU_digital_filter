@@ -1,41 +1,8 @@
-/****************************************************************
- * Example6_DMP_Quat9_Orientation.ino
- * ICM 20948 Arduino Library Demo
- * Initialize the DMP based on the TDK InvenSense ICM20948_eMD_nucleo_1.0 example-icm20948
- * Paul Clark, April 25th, 2021
- * Based on original code by:
- * Owen Lyke @ SparkFun Electronics
- * Original Creation Date: April 17 2019
- * 
- * ** This example is based on InvenSense's _confidential_ Application Note "Programming Sequence for DMP Hardware Functions".
- * ** We are grateful to InvenSense for sharing this with us.
- * 
- * ** Important note: by default the DMP functionality is disabled in the library
- * ** as the DMP firmware takes up 14301 Bytes of program memory.
- * ** To use the DMP, you will need to:
- * ** Edit ICM_20948_C.h
- * ** Uncomment line 29: #define ICM_20948_USE_DMP
- * ** Save changes
- * ** If you are using Windows, you can find ICM_20948_C.h in:
- * ** Documents\Arduino\libraries\SparkFun_ICM-20948_ArduinoLibrary\src\util
- *
- * Please see License.md for the license information.
- *
- * Distributed as-is; no warranty is given.
- ***************************************************************/
-
-//#define QUAT_ANIMATION // Uncomment this line to output data in the correct format for ZaneL's Node.js Quaternion animation tool: https://github.com/ZaneL/quaternion_sensor_3d_nodejs
-
 #include "ICM_20948.h" // Click here to get the library: http://librarymanager/All#SparkFun_ICM_20948_IMU
-
-//#define USE_SPI       // Uncomment this to use SPI
 
 #define SERIAL_PORT Serial
 
-#define USE_2_SENSORS
-
-#define SPI_PORT SPI // Your desired SPI port.       Used only when "USE_SPI" is defined
-#define CS_PIN 2     // Which pin you connect CS to. Used only when "USE_SPI" is defined
+//#define USE_2_SENSORS
 
 #define WIRE_PORT Wire // Your desired Wire port.      Used when "USE_SPI" is not defined
 // The value of the last bit of the I2C address.
@@ -43,25 +10,24 @@
 #define AD0_VAL 1
 #define AD0_VAL_1 0
 
+uint32_t calibration_offsets[2][4];
 
-#ifdef USE_SPI
-ICM_20948_SPI myICM; // If using SPI create an ICM_20948_SPI object
-#else
 ICM_20948_I2C myICM[2]; // Otherwise create an ICM_20948_I2C object
-#endif
+
 void quat_to_euler(float* angles, double q0, double q1, double q2, double q3);
-void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM);
+double* process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, double* quats);
+void print_euler(double* quats, int id);
+void calibrate(unsigned sample);
+void measure();
+void drain();
+
 void setup()
 {
 
   SERIAL_PORT.begin(115200); // Start the serial console
-#ifndef QUAT_ANIMATION
-  SERIAL_PORT.println(F("ICM-20948 Example"));
-#endif
 
   delay(100);
 
-#ifndef QUAT_ANIMATION
   while (SERIAL_PORT.available()) // Make sure the serial RX buffer is empty
     SERIAL_PORT.read();
 
@@ -69,19 +35,13 @@ void setup()
 
   while (!SERIAL_PORT.available()) // Wait for the user to press a key (send any serial character)
     ;
-#endif
 
-#ifdef USE_SPI
-  SPI_PORT.begin();
-#else
+
   WIRE_PORT.begin();
   WIRE_PORT.setClock(400000);
-#endif
 
-#ifndef QUAT_ANIMATION
-  myICM[0].enableDebugging(); // Uncomment this line to enable helpful debug messages on Serial
-  myICM[1].enableDebugging();
-#endif
+  //myICM[0].enableDebugging(); // Uncomment this line to enable helpful debug messages on Serial
+  //myICM[1].enableDebugging();
 
   bool initialized = false;
   while (!initialized)
@@ -89,40 +49,31 @@ void setup()
 
     // Initialize the ICM-20948
     // If the DMP is enabled, .begin performs a minimal startup. We need to configure the sample mode etc. manually.
-#ifdef USE_SPI
-    myICM.begin(CS_PIN, SPI_PORT);
-#else
+
     myICM[0].begin(WIRE_PORT, AD0_VAL); // WAS AD0_VAL
     #ifdef USE_2_SENSORS
     myICM[1].begin(WIRE_PORT, AD0_VAL_1);
     #endif
-#endif
 
-#ifndef QUAT_ANIMATION
     SERIAL_PORT.print(F("Initialization of the sensor returned: "));
     SERIAL_PORT.println(myICM[0].statusString());
     SERIAL_PORT.println(myICM[1].statusString());
-#endif
+
     #ifdef USE_2_SENSORS
     if (myICM[0].status != ICM_20948_Stat_Ok || myICM[1].status != ICM_20948_Stat_Ok)
     #else 
     if (myICM[0].status != ICM_20948_Stat_Ok)
     #endif
     {
-#ifndef QUAT_ANIMATION
+
       SERIAL_PORT.println(F("Trying again..."));
-#endif
       delay(500);
-    }
-    else
-    {
+    } else {
       initialized = true;
     }
   }
 
-#ifndef QUAT_ANIMATION
   SERIAL_PORT.println(F("Device connected!"));
-#endif
 
   bool success = true; // Use success to show if the DMP configuration was successful
 
@@ -203,23 +154,92 @@ void setup()
   #endif
 
   // Check success
-  if (success)
-  {
-#ifndef QUAT_ANIMATION
+  if (success){
     SERIAL_PORT.println(F("DMP enabled!"));
-#endif
-  }
-  else
-  {
+  } else {
     SERIAL_PORT.println(F("Enable DMP failed!"));
     SERIAL_PORT.println(F("Please check that you have uncommented line 29 (#define ICM_20948_USE_DMP) in ICM_20948_C.h..."));
-    while (1)
-      ; // Do nothing more
+    while (1); // Do nothing more
+  }
+
+  SERIAL_PORT.print("Start Drain\n");
+  unsigned drain_length = 1000;
+  for(unsigned i=0; i<drain_length; ++i){
+    drain();
   }
 }
 
-void loop()
-{
+void loop(){
+  unsigned calibration_length = 1000;
+  unsigned measure_length = 10000;
+
+  SERIAL_PORT.print("Start Calibration\n");
+  calibration_offsets[0][1] = 0;
+  calibration_offsets[0][2] = 0;
+  calibration_offsets[0][3] = 0;
+  calibration_offsets[1][1] = 0;
+  calibration_offsets[1][2] = 0;
+  calibration_offsets[1][3] = 0;
+
+  for(unsigned i=0; i<calibration_length; ++i){
+    calibrate(i);
+  }
+
+  SERIAL_PORT.print("Start Exercise\n");
+  for(unsigned i=0; i<measure_length; ++i){
+    measure();
+  }
+
+
+  SERIAL_PORT.print("Done Exercise\n");
+  delay(100);
+
+}
+
+void calibrate(unsigned sample){
+  double data_double[4];
+  icm_20948_DMP_data_t data[2];
+  myICM[0].readDMPdataFromFIFO(&data[0]);
+  #ifdef USE_2_SENSORS
+  myICM[1].readDMPdataFromFIFO(&data[1]);
+  #endif
+
+  process_data(&data[0], &myICM[0], 0, data_double);
+  calibration_offsets[0][1] = (calibration_offsets[0][1]*sample + data_double[1]) / (sample + 1);
+  calibration_offsets[0][2] = (calibration_offsets[0][2]*sample + data_double[2]) / (sample + 1);
+  calibration_offsets[0][3] = (calibration_offsets[0][3]*sample + data_double[3]) / (sample + 1);
+
+
+  #ifdef USE_2_SENSORS
+  process_data(&data[1], &myICM[1], 1, data_double);
+  calibration_offsets[1][1] = (calibration_offsets[1][1]*sample + data_double[1]) / (sample + 1);
+  calibration_offsets[1][2] = (calibration_offsets[1][2]*sample + data_double[2]) / (sample + 1);
+  calibration_offsets[1][3] = (calibration_offsets[1][3]*sample + data_double[3]) / (sample + 1);
+
+  #endif
+  if (myICM[0].status != ICM_20948_Stat_FIFOMoreDataAvail) // If more data is available then we should read it right away - and not delay
+  {
+    delay(10);
+  }
+}
+
+void drain(){
+  double data_double[4];
+  icm_20948_DMP_data_t data[2];
+  myICM[0].readDMPdataFromFIFO(&data[0]);
+  #ifdef USE_2_SENSORS
+  myICM[1].readDMPdataFromFIFO(&data[1]);
+  #endif
+
+  if (myICM[0].status != ICM_20948_Stat_FIFOMoreDataAvail) // If more data is available then we should read it right away - and not delay
+  {
+    delay(10);
+  }
+}
+
+void measure(){
+  double data_double[4];
+
   // Read any DMP data waiting in the FIFO
   // Note:
   //    readDMPdataFromFIFO will return ICM_20948_Stat_FIFONoDataAvail if no data is available.
@@ -233,11 +253,13 @@ void loop()
   myICM[1].readDMPdataFromFIFO(&data[1]);
   #endif
 
-  process_data(&data[0], &myICM[0], 0);
-
+  process_data(&data[0], &myICM[0], 0, data_double);
+  print_euler(data_double, 0);
   #ifdef USE_2_SENSORS
-  process_data(&data[1], &myICM[1], 1);
+  process_data(&data[1], &myICM[1], 1, data_double);
+  print_euler(data_double, 1);
   #endif
+
 
   if (myICM[0].status != ICM_20948_Stat_FIFOMoreDataAvail) // If more data is available then we should read it right away - and not delay
   {
@@ -266,7 +288,7 @@ void quat_to_euler(float* angles, double q0, double q1, double q2, double q3){
     angles[2] *= 180.0f/3.14159265358979323846f;
 }
 
-void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id){
+void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id, double* quats){
   if ((myICM->status == ICM_20948_Stat_Ok) || (myICM->status == ICM_20948_Stat_FIFOMoreDataAvail)) // Was valid data available?
   {
     //SERIAL_PORT.print(F("Received data! Header: 0x")); // Print the header in HEX so we can see what data is arriving in the FIFO
@@ -284,14 +306,21 @@ void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id){
       //SERIAL_PORT.printf("Quat9 data is: Q1:%ld Q2:%ld Q3:%ld Accuracy:%d\r\n", data.Quat9.Data.Q1, data.Quat9.Data.Q2, data.Quat9.Data.Q3, data.Quat9.Data.Accuracy);
 
       // Scale to +/- 1
-      double q1 = ((double)data->Quat9.Data.Q1) / 1073741824.0; // Convert to double. Divide by 2^30
-      double q2 = ((double)data->Quat9.Data.Q2) / 1073741824.0; // Convert to double. Divide by 2^30
-      double q3 = ((double)data->Quat9.Data.Q3) / 1073741824.0; // Convert to double. Divide by 2^30
-      double q0 = sqrt(1.0 - ((q1 * q1) + (q2 * q2) + (q3 * q3)));
-      float angles[3];
-      quat_to_euler(angles, q0, q1, q2, q3);
+      quats[1] = ((double)data->Quat9.Data.Q1) / 1073741824.0; // Convert to double. Divide by 2^30
+      quats[2] = ((double)data->Quat9.Data.Q2) / 1073741824.0; // Convert to double. Divide by 2^30
+      quats[3] = ((double)data->Quat9.Data.Q3) / 1073741824.0; // Convert to double. Divide by 2^30
+      quats[1] -= calibration_offsets[id][1];
+      quats[2] -= calibration_offsets[id][2];
+      quats[3] -= calibration_offsets[id][3];
 
-#ifndef QUAT_ANIMATION
+      quats[0] = sqrt(1.0 - ((quats[1] * quats[1]) + (quats[2] * quats[2]) + (quats[3] * quats[3])));
+    }
+  }
+}
+
+void print_euler(double* quats, int id){
+    float angles[3];
+    quat_to_euler(angles, quats[0], quats[1], quats[2], quats[3]);
 
       /*SERIAL_PORT.print(F("Q0:"));
       SERIAL_PORT.print(q0, 3);
@@ -301,23 +330,6 @@ void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id){
       SERIAL_PORT.print(q2, 3);
       SERIAL_PORT.print(F(" Q3:"));
       SERIAL_PORT.print(q3, 3);*/
-      char* angle_names[3];
-      if(id == 0){
-        angle_names[0] = (" roll0:");
-        angle_names[1] = (" pitch0:");
-        angle_names[2] = (" yaw0:");
-      } else {
-        angle_names[0] = (" roll1:");
-        angle_names[1] = (" pitch1:");
-        angle_names[2] = (" yaw1:");
-      }
-
-      SERIAL_PORT.print(angle_names[0]);
-      SERIAL_PORT.print(angles[0], 3);
-      SERIAL_PORT.print(angle_names[1]);
-      SERIAL_PORT.print(angles[1], 3);
-      SERIAL_PORT.print(angle_names[2]);
-      SERIAL_PORT.println(angles[2], 3);
       //SERIAL_PORT.print(F(" Accuracy:"));
       //SERIAL_PORT.println(data.Quat9.Data.Accuracy);
 
@@ -334,19 +346,21 @@ void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id){
       SERIAL_PORT.write(10);
       SERIAL_PORT.write(13);
       */
-#else
-      // Output the Quaternion data in the format expected by ZaneL's Node.js Quaternion animation tool
-      SERIAL_PORT.print(F("{\"quat_w\":"));
-      SERIAL_PORT.print(q0, 3);
-      SERIAL_PORT.print(F(", \"quat_x\":"));
-      SERIAL_PORT.print(q1, 3);
-      SERIAL_PORT.print(F(", \"quat_y\":"));
-      SERIAL_PORT.print(q2, 3);
-      SERIAL_PORT.print(F(", \"quat_z\":"));
-      SERIAL_PORT.print(q3, 3);
-      SERIAL_PORT.println(F("}"));
-#endif
+    char* angle_names[3];
+    if(id == 0){
+      angle_names[0] = (" roll0:");
+      angle_names[1] = (" pitch0:");
+      angle_names[2] = (" yaw0:");
+    } else {
+      angle_names[0] = (" roll1:");
+      angle_names[1] = (" pitch1:");
+      angle_names[2] = (" yaw1:");
     }
-  }
-}
 
+    SERIAL_PORT.print(angle_names[0]);
+    SERIAL_PORT.print(angles[0], 3);
+    SERIAL_PORT.print(angle_names[1]);
+    SERIAL_PORT.print(angles[1], 3);
+    SERIAL_PORT.print(angle_names[2]);
+    SERIAL_PORT.println(angles[2], 3);
+}
