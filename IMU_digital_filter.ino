@@ -3,6 +3,7 @@
 #define SERIAL_PORT Serial
 
 #define USE_2_SENSORS
+#define MATLAB
 
 #define WIRE_PORT Wire // Your desired Wire port.      Used when "USE_SPI" is not defined
 // The value of the last bit of the I2C address.
@@ -24,18 +25,17 @@ void drain();
 void setup()
 {
 
-  SERIAL_PORT.begin(115200); // Start the serial console
+  SERIAL_PORT.begin(57600); // Start the serial console
 
   delay(100);
 
   while (SERIAL_PORT.available()) // Make sure the serial RX buffer is empty
-    SERIAL_PORT.read();
+  SERIAL_PORT.read();
 
   SERIAL_PORT.println(F("Press any key to continue..."));
 
   while (!SERIAL_PORT.available()) // Wait for the user to press a key (send any serial character)
     ;
-
 
   WIRE_PORT.begin();
   WIRE_PORT.setClock(400000);
@@ -181,9 +181,9 @@ void loop(){
   calibration_offsets[1][2] = 0;
   calibration_offsets[1][3] = 0;
 
-  for(unsigned i=0; i<calibration_length; ++i){
-    calibrate(i);
-  }
+  //for(unsigned i=0; i<calibration_length; ++i){
+  //  calibrate(i);
+  //}
 
   SERIAL_PORT.print("Start Exercise\n");
   for(unsigned i=0; i<measure_length; ++i){
@@ -347,6 +347,23 @@ void print_euler(double* quats, int id){
       SERIAL_PORT.write(13);
       */
     char* angle_names[3];
+
+    #ifdef MATLAB
+      if(id == 0){
+        angle_names[0] = ("0");
+      } else {
+        angle_names[0] = ("1");
+      }
+      SERIAL_PORT.print(angle_names[0]);
+      SERIAL_PORT.print(F(","));
+      SERIAL_PORT.print(angles[0], 3);
+      SERIAL_PORT.print(F(","));
+      SERIAL_PORT.print(angles[1], 3);
+      SERIAL_PORT.print(F(","));
+      SERIAL_PORT.println(angles[2], 3);
+      SERIAL_PORT.write(10);
+      SERIAL_PORT.write(13);
+    #else 
     if(id == 0){
       angle_names[0] = (" roll0:");
       angle_names[1] = (" pitch0:");
@@ -363,4 +380,5 @@ void print_euler(double* quats, int id){
     SERIAL_PORT.print(angles[1], 3);
     SERIAL_PORT.print(angle_names[2]);
     SERIAL_PORT.println(angles[2], 3);
+    #endif
 }
