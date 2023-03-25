@@ -2,7 +2,7 @@
 
 #define SERIAL_PORT Serial
 
-#define USE_2_SENSORS
+//#define USE_2_SENSORS
 #define MATLAB
 
 #define WIRE_PORT Wire // Your desired Wire port.      Used when "USE_SPI" is not defined
@@ -196,17 +196,26 @@ void loop(){
 
 
   SERIAL_PORT.println("Start Calibration");
-  for(unsigned i=0; i<calibration_length; ++i){
-    calibrate(i);
+  for(unsigned i=1; i<=calibration_length; ++i){
+    //calibrate(i);
   }
   
-  calibration_offsets[0][1] = calibration_calc[0][1]/calibration_length;
-  calibration_offsets[0][2] = calibration_calc[0][2]/calibration_length;
-  calibration_offsets[0][3] = calibration_calc[0][3]/calibration_length;
-  calibration_offsets[1][1] = calibration_calc[1][1]/calibration_length;
-  calibration_offsets[1][2] = calibration_calc[1][2]/calibration_length;
-  calibration_offsets[1][3] = calibration_calc[1][3]/calibration_length;
-  
+  calibration_offsets[0][1] = calibration_calc[0][1];
+  calibration_offsets[0][2] = calibration_calc[0][2];
+  calibration_offsets[0][3] = calibration_calc[0][3];
+  calibration_offsets[1][1] = calibration_calc[1][1];
+  calibration_offsets[1][2] = calibration_calc[1][2];
+  calibration_offsets[1][3] = calibration_calc[1][3];
+
+  SERIAL_PORT.println(calibration_offsets[0][1]);
+  SERIAL_PORT.println(calibration_offsets[0][2]);
+  SERIAL_PORT.println(calibration_offsets[0][3]);
+  #ifdef USE_2_SENSORS
+  SERIAL_PORT.println(calibration_offsets[1][1]);
+  SERIAL_PORT.println(calibration_offsets[1][2]);
+  SERIAL_PORT.println(calibration_offsets[1][3]);
+  #endif
+
   SERIAL_PORT.println("Start Exercise");
   while (SERIAL_PORT.available()) SERIAL_PORT.read();
   while(true){
@@ -231,17 +240,17 @@ void calibrate(unsigned sample){
   #endif
 
   process_data(&data[0], &myICM[0], 0, data_double);
-  calibration_calc[0][1] += data_double[1];
-  calibration_calc[0][2] += data_double[2];
-  calibration_calc[0][3] += data_double[3];
+  calibration_calc[0][1] = (data_double[1] + (calibration_calc[0][1]*sample))/(sample + 1);
+  calibration_calc[0][2] = (data_double[2] + (calibration_calc[0][2]*sample))/(sample + 1);
+  calibration_calc[0][3] = (data_double[3] + (calibration_calc[0][3]*sample))/(sample + 1);
 
   #ifdef USE_2_SENSORS
   process_data(&data[1], &myICM[1], 1, data_double);
-  calibration_calc[1][1] += data_double[1];
-  calibration_calc[2][2] += data_double[2];
-  calibration_calc[3][3] += data_double[3];
-
+  calibration_calc[1][1] = (data_double[1] + (calibration_calc[1][1]*sample))/(sample + 1);
+  calibration_calc[1][2] = (data_double[2] + (calibration_calc[1][2]*sample))/(sample + 1);
+  calibration_calc[1][3] = (data_double[3] + (calibration_calc[1][3]*sample))/(sample + 1);
   #endif
+  
   if (myICM[0].status != ICM_20948_Stat_FIFOMoreDataAvail) // If more data is available then we should read it right away - and not delay
   {
     delay(10);
@@ -379,6 +388,7 @@ void print_euler(double* quats, int id){
       } else {
         angle_names[0] = ("1");
       }
+      /*
       SERIAL_PORT.print(angle_names[0]);
       SERIAL_PORT.print(F(","));
       SERIAL_PORT.print(angles[0], 3);
@@ -388,6 +398,16 @@ void print_euler(double* quats, int id){
       SERIAL_PORT.println(angles[2], 3);
       SERIAL_PORT.write(10);
       SERIAL_PORT.write(13);
+      */
+      SERIAL_PORT.print(angle_names[0]);
+      SERIAL_PORT.print(F(","));
+      SERIAL_PORT.print(quats[0], 3);
+      SERIAL_PORT.print(F(","));
+      SERIAL_PORT.print(quats[1], 3);
+      SERIAL_PORT.print(F(","));
+      SERIAL_PORT.print(quats[2], 3);
+      SERIAL_PORT.print(F(","));
+      SERIAL_PORT.println(quats[3], 3);
     #else 
     if(id == 0){
       angle_names[0] = (" roll0:");
