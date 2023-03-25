@@ -2,7 +2,7 @@
 
 #define SERIAL_PORT Serial
 
-//#define USE_2_SENSORS
+#define USE_2_SENSORS
 #define MATLAB
 
 #define WIRE_PORT Wire // Your desired Wire port.      Used when "USE_SPI" is not defined
@@ -11,8 +11,8 @@
 #define AD0_VAL 1
 #define AD0_VAL_1 0
 
-double calibration_offsets[2][4];
-double calibration_calc[2][4];
+int32_t calibration_offsets[2][4];
+int64_t calibration_calc[2][4];
 
 ICM_20948_I2C myICM[2]; // Otherwise create an ICM_20948_I2C object
 
@@ -164,14 +164,14 @@ void setup()
   }
 
   SERIAL_PORT.println("Start Drain");
-  unsigned drain_length = 1000;
+  unsigned drain_length = 2000;
   for(unsigned i=0; i<drain_length; ++i){
     drain();
   }
 }
 
 void loop(){
-  unsigned calibration_length = 666;
+  unsigned calibration_length = 100;
   int read_result;
 
   calibration_offsets[0][1] = 0;
@@ -187,17 +187,15 @@ void loop(){
   calibration_calc[1][2] = 0;
   calibration_calc[1][3] = 0;
   while (SERIAL_PORT.available()) SERIAL_PORT.read();
-  SERIAL_PORT.println("Wating For Calibration Start");
+  SERIAL_PORT.println("Waiting For Calibration Start");
   do {
     read_result = SERIAL_PORT.read();
   } while (read_result == -1);
   SERIAL_PORT.println(read_result);
 
-
-
   SERIAL_PORT.println("Start Calibration");
-  for(unsigned i=1; i<=calibration_length; ++i){
-    //calibrate(i);
+  for(unsigned i=0; i<calibration_length; ++i){
+    calibrate(i);
   }
   
   calibration_offsets[0][1] = calibration_calc[0][1];
@@ -206,13 +204,19 @@ void loop(){
   calibration_offsets[1][1] = calibration_calc[1][1];
   calibration_offsets[1][2] = calibration_calc[1][2];
   calibration_offsets[1][3] = calibration_calc[1][3];
-
-  SERIAL_PORT.println(calibration_offsets[0][1]);
-  SERIAL_PORT.println(calibration_offsets[0][2]);
+  
+  SERIAL_PORT.println("Calibration Values0:");
+  SERIAL_PORT.print(calibration_offsets[0][1]);
+  SERIAL_PORT.print(" ");
+  SERIAL_PORT.print(calibration_offsets[0][2]);
+  SERIAL_PORT.print(" ");
   SERIAL_PORT.println(calibration_offsets[0][3]);
   #ifdef USE_2_SENSORS
-  SERIAL_PORT.println(calibration_offsets[1][1]);
-  SERIAL_PORT.println(calibration_offsets[1][2]);
+  SERIAL_PORT.println("Calibration Values1:");
+  SERIAL_PORT.print(calibration_offsets[1][1]);
+  SERIAL_PORT.print(" ");
+  SERIAL_PORT.print(calibration_offsets[1][2]);
+  SERIAL_PORT.print(" ");
   SERIAL_PORT.println(calibration_offsets[1][3]);
   #endif
 
@@ -232,48 +236,46 @@ void loop(){
 }
 
 void calibrate(unsigned sample){
-  double data_double[4];
-  icm_20948_DMP_data_t data[2];
-  myICM[0].readDMPdataFromFIFO(&data[0]);
+  icm_20948_DMP_data_t sensor_data[2];
+  ICM_20948_Status_e status;
+
   #ifdef USE_2_SENSORS
-  myICM[1].readDMPdataFromFIFO(&data[1]);
+  for(int i = 0; i < 2; ++i){
+  #else
+  int i = 0;
   #endif
 
-  process_data(&data[0], &myICM[0], 0, data_double);
-  calibration_calc[0][1] = (data_double[1] + (calibration_calc[0][1]*sample))/(sample + 1);
-  calibration_calc[0][2] = (data_double[2] + (calibration_calc[0][2]*sample))/(sample + 1);
-  calibration_calc[0][3] = (data_double[3] + (calibration_calc[0][3]*sample))/(sample + 1);
-
+    status = myICM[i].readDMPdataFromFIFO(&sensor_data[i]);
+    if(status == ICM_20948_Stat_Ok || status == ICM_20948_Stat_FIFOMoreDataAvail){
+      calibration_calc[i][1] = (sensor_data[i].Quat9.Data.Q1 + (calibration_calc[i][1]*sample))/(sample + 1);
+      calibration_calc[i][2] = (sensor_data[i].Quat9.Data.Q2 + (calibration_calc[i][2]*sample))/(sample + 1);
+      calibration_calc[i][3] = (sensor_data[i].Quat9.Data.Q3 + (calibration_calc[i][3]*sample))/(sample + 1);
+    }
   #ifdef USE_2_SENSORS
-  process_data(&data[1], &myICM[1], 1, data_double);
-  calibration_calc[1][1] = (data_double[1] + (calibration_calc[1][1]*sample))/(sample + 1);
-  calibration_calc[1][2] = (data_double[2] + (calibration_calc[1][2]*sample))/(sample + 1);
-  calibration_calc[1][3] = (data_double[3] + (calibration_calc[1][3]*sample))/(sample + 1);
+  }
   #endif
   
-  if (myICM[0].status != ICM_20948_Stat_FIFOMoreDataAvail) // If more data is available then we should read it right away - and not delay
-  {
-    delay(10);
-  }
 }
 
 void drain(){
-  double data_double[4];
-  icm_20948_DMP_data_t data[2];
-  myICM[0].readDMPdataFromFIFO(&data[0]);
+  icm_20948_DMP_data_t data;
+
   #ifdef USE_2_SENSORS
-  myICM[1].readDMPdataFromFIFO(&data[1]);
+  for(int i = 0; i < 2; ++i){
+  #else
+  int i = 0;
   #endif
 
-  if (myICM[0].status != ICM_20948_Stat_FIFOMoreDataAvail) // If more data is available then we should read it right away - and not delay
-  {
-    delay(10);
+    myICM[i].readDMPdataFromFIFO(&data);
+
+  #ifdef USE_2_SENSORS
   }
+  #endif
 }
 
 void measure(){
-  double data_double[4];
-
+  double data[4];
+  bool wait[2];
   // Read any DMP data waiting in the FIFO
   // Note:
   //    readDMPdataFromFIFO will return ICM_20948_Stat_FIFONoDataAvail if no data is available.
@@ -281,22 +283,32 @@ void measure(){
   //    readDMPdataFromFIFO will return ICM_20948_Stat_FIFOIncompleteData if a frame was present but was incomplete
   //    readDMPdataFromFIFO will return ICM_20948_Stat_Ok if a valid frame was read.
   //    readDMPdataFromFIFO will return ICM_20948_Stat_FIFOMoreDataAvail if a valid frame was read _and_ the FIFO contains more (unread) data.
-  icm_20948_DMP_data_t data[2];
-  myICM[0].readDMPdataFromFIFO(&data[0]);
+  icm_20948_DMP_data_t sensor_data[2];
+  ICM_20948_Status_e status;
+  
+  status =  myICM[0].readDMPdataFromFIFO(&sensor_data[0]);
+  if(status == ICM_20948_Stat_Ok || status == ICM_20948_Stat_FIFOMoreDataAvail){
+    process_data(&sensor_data[0], &myICM[0], 0, data);
+    print_euler(data, 0);
+    wait[0] = 0;
+  } else {
+    wait[0] = 1;
+  }
+
   #ifdef USE_2_SENSORS
-  myICM[1].readDMPdataFromFIFO(&data[1]);
+  status = myICM[1].readDMPdataFromFIFO(&sensor_data[1]);
+
+  if(status == ICM_20948_Stat_Ok || status == ICM_20948_Stat_FIFOMoreDataAvail){
+    process_data(&sensor_data[1], &myICM[1], 1, data);
+    print_euler(data, 1);
+    wait[1] = 0;
+  } else {
+    wait[1] = 1;
+  }
   #endif
 
-  process_data(&data[0], &myICM[0], 0, data_double);
-  print_euler(data_double, 0);
-  #ifdef USE_2_SENSORS
-  process_data(&data[1], &myICM[1], 1, data_double);
-  print_euler(data_double, 1);
-  #endif
 
-
-  if (myICM[0].status != ICM_20948_Stat_FIFOMoreDataAvail) // If more data is available then we should read it right away - and not delay
-  {
+  if (wait[0] && wait[1]){
     delay(10);
   }
 }
@@ -323,72 +335,46 @@ void quat_to_euler(float* angles, double q0, double q1, double q2, double q3){
 }
 
 void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id, double* quats){
-  if ((myICM->status == ICM_20948_Stat_Ok) || (myICM->status == ICM_20948_Stat_FIFOMoreDataAvail)) // Was valid data available?
-  {
-    //SERIAL_PORT.print(F("Received data! Header: 0x")); // Print the header in HEX so we can see what data is arriving in the FIFO
-    //if ( data.header < 0x1000) SERIAL_PORT.print( "0" ); // Pad the zeros
-    //if ( data.header < 0x100) SERIAL_PORT.print( "0" );
-    //if ( data.header < 0x10) SERIAL_PORT.print( "0" );
-    //SERIAL_PORT.println( data.header, HEX );
-
-    if ((data->header & DMP_header_bitmap_Quat9) > 0) // We have asked for orientation data so we should receive Quat9
-    {
-      // Q0 value is computed from this equation: Q0^2 + Q1^2 + Q2^2 + Q3^2 = 1.
-      // In case of drift, the sum will not add to 1, therefore, quaternion data need to be corrected with right bias values.
-      // The quaternion data is scaled by 2^30.
+  if ((myICM->status == ICM_20948_Stat_Ok) || (myICM->status == ICM_20948_Stat_FIFOMoreDataAvail))  {
+    // We have asked for orientation data so we should receive Quat9
+    if ((data->header & DMP_header_bitmap_Quat9) > 0) {
 
       //SERIAL_PORT.printf("Quat9 data is: Q1:%ld Q2:%ld Q3:%ld Accuracy:%d\r\n", data.Quat9.Data.Q1, data.Quat9.Data.Q2, data.Quat9.Data.Q3, data.Quat9.Data.Accuracy);
 
       // Scale to +/- 1
-      quats[1] = ((double)data->Quat9.Data.Q1) / 1073741824.0; // Convert to double. Divide by 2^30
-      quats[2] = ((double)data->Quat9.Data.Q2) / 1073741824.0; // Convert to double. Divide by 2^30
-      quats[3] = ((double)data->Quat9.Data.Q3) / 1073741824.0; // Convert to double. Divide by 2^30
-      quats[1] -= calibration_offsets[id][1];
-      quats[2] -= calibration_offsets[id][2];
-      quats[3] -= calibration_offsets[id][3];
-
+      quats[1] = (double)(data->Quat9.Data.Q1 - calibration_offsets[id][1]) / 1073741824.0;
+      quats[2] = (double)(data->Quat9.Data.Q2 - calibration_offsets[id][2]) / 1073741824.0;
+      quats[3] = (double)(data->Quat9.Data.Q3 - calibration_offsets[id][3]) / 1073741824.0;
+      // SERIAL_PORT.print(data->Quat9.Data.Q1);
+      // SERIAL_PORT.print(" ");
+      // SERIAL_PORT.print(data->Quat9.Data.Q2);
+      // SERIAL_PORT.print(" ");
+      // SERIAL_PORT.print(data->Quat9.Data.Q3);
+      // SERIAL_PORT.println("");
       quats[0] = sqrt(1.0 - ((quats[1] * quats[1]) + (quats[2] * quats[2]) + (quats[3] * quats[3])));
     }
   }
 }
 
 void print_euler(double* quats, int id){
+    char angle_names[3][10];
     float angles[3];
+
+    // Q0 value is computed from this equation: Q0^2 + Q1^2 + Q2^2 + Q3^2 = 1.
+    // In case of drift, the sum will not add to 1, therefore, quaternion data need to be corrected with right bias values.
+    // The quaternion data is scaled by 2^30.
+
     quat_to_euler(angles, quats[0], quats[1], quats[2], quats[3]);
-
-      /*SERIAL_PORT.print(F("Q0:"));
-      SERIAL_PORT.print(q0, 3);
-      SERIAL_PORT.print(F(" Q1:"));
-      SERIAL_PORT.print(q1, 3);
-      SERIAL_PORT.print(F(" Q2:"));
-      SERIAL_PORT.print(q2, 3);
-      SERIAL_PORT.print(F(" Q3:"));
-      SERIAL_PORT.print(q3, 3);*/
-      //SERIAL_PORT.print(F(" Accuracy:"));
-      //SERIAL_PORT.println(data.Quat9.Data.Accuracy);
-
-    
-    /*
-      SERIAL_PORT.print(angles[0], 3);
-      SERIAL_PORT.print(F(","));
-      SERIAL_PORT.print(angles[1], 3);
-      SERIAL_PORT.print(F(","));
-      SERIAL_PORT.print(angles[2], 3);
-      SERIAL_PORT.print(F(","));
-      SERIAL_PORT.print(angles[1], 3);
-
-      SERIAL_PORT.write(10);
-      SERIAL_PORT.write(13);
-      */
-    char* angle_names[3];
 
     #ifdef MATLAB
       if(id == 0){
-        angle_names[0] = ("0");
+        angle_names[0][0] = '0';
+        angle_names[0][1] = '\0';
       } else {
-        angle_names[0] = ("1");
+        angle_names[0][0] = '1';
+        angle_names[0][1] = '\0';
       }
-      /*
+      
       SERIAL_PORT.print(angle_names[0]);
       SERIAL_PORT.print(F(","));
       SERIAL_PORT.print(angles[0], 3);
@@ -398,7 +384,7 @@ void print_euler(double* quats, int id){
       SERIAL_PORT.println(angles[2], 3);
       SERIAL_PORT.write(10);
       SERIAL_PORT.write(13);
-      */
+      /*
       SERIAL_PORT.print(angle_names[0]);
       SERIAL_PORT.print(F(","));
       SERIAL_PORT.print(quats[0], 3);
@@ -408,6 +394,7 @@ void print_euler(double* quats, int id){
       SERIAL_PORT.print(quats[2], 3);
       SERIAL_PORT.print(F(","));
       SERIAL_PORT.println(quats[3], 3);
+      */
     #else 
     if(id == 0){
       angle_names[0] = (" roll0:");
