@@ -11,7 +11,8 @@
 #define AD0_VAL 1
 #define AD0_VAL_1 0
 
-uint32_t calibration_offsets[2][4];
+double calibration_offsets[2][4];
+double calibration_calc[2][4];
 
 ICM_20948_I2C myICM[2]; // Otherwise create an ICM_20948_I2C object
 
@@ -162,7 +163,7 @@ void setup()
     while (1); // Do nothing more
   }
 
-  SERIAL_PORT.print("Start Drain\n");
+  SERIAL_PORT.println("Start Drain");
   unsigned drain_length = 1000;
   for(unsigned i=0; i<drain_length; ++i){
     drain();
@@ -179,20 +180,35 @@ void loop(){
   calibration_offsets[1][1] = 0;
   calibration_offsets[1][2] = 0;
   calibration_offsets[1][3] = 0;
-
-  while (Serial.available()) Serial.read();
-
+  calibration_calc[0][1] = 0;
+  calibration_calc[0][2] = 0;
+  calibration_calc[0][3] = 0;
+  calibration_calc[1][1] = 0;
+  calibration_calc[1][2] = 0;
+  calibration_calc[1][3] = 0;
+  while (SERIAL_PORT.available()) SERIAL_PORT.read();
+  SERIAL_PORT.println("Wating For Calibration Start");
   do {
     read_result = SERIAL_PORT.read();
   } while (read_result == -1);
   SERIAL_PORT.println(read_result);
 
-  //SERIAL_PORT.println("Start Calibration");
+
+
+  SERIAL_PORT.println("Start Calibration");
   for(unsigned i=0; i<calibration_length; ++i){
     calibrate(i);
   }
-
+  
+  calibration_offsets[0][1] = calibration_calc[0][1]/calibration_length;
+  calibration_offsets[0][2] = calibration_calc[0][2]/calibration_length;
+  calibration_offsets[0][3] = calibration_calc[0][3]/calibration_length;
+  calibration_offsets[1][1] = calibration_calc[1][1]/calibration_length;
+  calibration_offsets[1][2] = calibration_calc[1][2]/calibration_length;
+  calibration_offsets[1][3] = calibration_calc[1][3]/calibration_length;
+  
   SERIAL_PORT.println("Start Exercise");
+  while (SERIAL_PORT.available()) SERIAL_PORT.read();
   while(true){
     measure();
     read_result = SERIAL_PORT.read();
@@ -215,16 +231,15 @@ void calibrate(unsigned sample){
   #endif
 
   process_data(&data[0], &myICM[0], 0, data_double);
-  calibration_offsets[0][1] = (calibration_offsets[0][1]*sample + data_double[1]) / (sample + 1);
-  calibration_offsets[0][2] = (calibration_offsets[0][2]*sample + data_double[2]) / (sample + 1);
-  calibration_offsets[0][3] = (calibration_offsets[0][3]*sample + data_double[3]) / (sample + 1);
-
+  calibration_calc[0][1] += data_double[1];
+  calibration_calc[0][2] += data_double[2];
+  calibration_calc[0][3] += data_double[3];
 
   #ifdef USE_2_SENSORS
   process_data(&data[1], &myICM[1], 1, data_double);
-  calibration_offsets[1][1] = (calibration_offsets[1][1]*sample + data_double[1]) / (sample + 1);
-  calibration_offsets[1][2] = (calibration_offsets[1][2]*sample + data_double[2]) / (sample + 1);
-  calibration_offsets[1][3] = (calibration_offsets[1][3]*sample + data_double[3]) / (sample + 1);
+  calibration_calc[1][1] += data_double[1];
+  calibration_calc[2][2] += data_double[2];
+  calibration_calc[3][3] += data_double[3];
 
   #endif
   if (myICM[0].status != ICM_20948_Stat_FIFOMoreDataAvail) // If more data is available then we should read it right away - and not delay
@@ -370,7 +385,7 @@ void print_euler(double* quats, int id){
       SERIAL_PORT.print(F(","));
       SERIAL_PORT.print(angles[1], 3);
       SERIAL_PORT.print(F(","));
-      SERIAL_PORT.print(angles[2], 3);
+      SERIAL_PORT.println(angles[2], 3);
       SERIAL_PORT.write(10);
       SERIAL_PORT.write(13);
     #else 
