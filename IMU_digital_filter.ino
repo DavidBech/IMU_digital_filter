@@ -171,7 +171,7 @@ void setup()
 }
 
 void loop(){
-  unsigned calibration_length = 100;
+  unsigned calibration_length = 600;
   int read_result;
 
   calibration_offsets[0][1] = 0;
@@ -205,23 +205,24 @@ void loop(){
   calibration_offsets[1][2] = calibration_calc[1][2];
   calibration_offsets[1][3] = calibration_calc[1][3];
   
-  SERIAL_PORT.println("Calibration Values0:");
-  SERIAL_PORT.print(calibration_offsets[0][1]);
-  SERIAL_PORT.print(" ");
-  SERIAL_PORT.print(calibration_offsets[0][2]);
-  SERIAL_PORT.print(" ");
-  SERIAL_PORT.println(calibration_offsets[0][3]);
-  #ifdef USE_2_SENSORS
-  SERIAL_PORT.println("Calibration Values1:");
-  SERIAL_PORT.print(calibration_offsets[1][1]);
-  SERIAL_PORT.print(" ");
-  SERIAL_PORT.print(calibration_offsets[1][2]);
-  SERIAL_PORT.print(" ");
-  SERIAL_PORT.println(calibration_offsets[1][3]);
-  #endif
+  // SERIAL_PORT.println("Calibration Values0:");
+  // SERIAL_PORT.print(calibration_offsets[0][1]);
+  // SERIAL_PORT.print(" ");
+  // SERIAL_PORT.print(calibration_offsets[0][2]);
+  // SERIAL_PORT.print(" ");
+  // SERIAL_PORT.println(calibration_offsets[0][3]);
+  // #ifdef USE_2_SENSORS
+  // SERIAL_PORT.println("Calibration Values1:");
+  // SERIAL_PORT.print(calibration_offsets[1][1]);
+  // SERIAL_PORT.print(" ");
+  // SERIAL_PORT.print(calibration_offsets[1][2]);
+  // SERIAL_PORT.print(" ");
+  // SERIAL_PORT.println(calibration_offsets[1][3]);
+  // #endif
 
   SERIAL_PORT.println("Start Exercise");
   while (SERIAL_PORT.available()) SERIAL_PORT.read();
+  
   while(true){
     measure();
     read_result = SERIAL_PORT.read();
@@ -238,6 +239,7 @@ void loop(){
 void calibrate(unsigned sample){
   icm_20948_DMP_data_t sensor_data[2];
   ICM_20948_Status_e status;
+  bool wait = 1;
 
   #ifdef USE_2_SENSORS
   for(int i = 0; i < 2; ++i){
@@ -250,15 +252,23 @@ void calibrate(unsigned sample){
       calibration_calc[i][1] = (sensor_data[i].Quat9.Data.Q1 + (calibration_calc[i][1]*sample))/(sample + 1);
       calibration_calc[i][2] = (sensor_data[i].Quat9.Data.Q2 + (calibration_calc[i][2]*sample))/(sample + 1);
       calibration_calc[i][3] = (sensor_data[i].Quat9.Data.Q3 + (calibration_calc[i][3]*sample))/(sample + 1);
+      wait = 0;
+    } else {
+        wait &= 1;
     }
   #ifdef USE_2_SENSORS
   }
   #endif
+  if(wait){
+    delay(10);
+  }
   
 }
 
 void drain(){
   icm_20948_DMP_data_t data;
+  ICM_20948_Status_e status;
+  bool wait = 1;
 
   #ifdef USE_2_SENSORS
   for(int i = 0; i < 2; ++i){
@@ -266,10 +276,21 @@ void drain(){
   int i = 0;
   #endif
 
-    myICM[i].readDMPdataFromFIFO(&data);
+    status = myICM[i].readDMPdataFromFIFO(&data);
+    if(status == ICM_20948_Stat_FIFONoDataAvail ||  ICM_20948_Stat_FIFOIncompleteData){
+        wait &=1;
+    } else {
+        wait = 0; // Data was read
+    }
+
 
   #ifdef USE_2_SENSORS
   }
+
+    if(wait) {
+       delay(10);
+    }
+
   #endif
 }
 
@@ -382,8 +403,8 @@ void print_euler(double* quats, int id){
       SERIAL_PORT.print(angles[1], 3);
       SERIAL_PORT.print(F(","));
       SERIAL_PORT.println(angles[2], 3);
-      SERIAL_PORT.write(10);
-      SERIAL_PORT.write(13);
+      //SERIAL_PORT.write(10);
+      //SERIAL_PORT.write(13);
       /*
       SERIAL_PORT.print(angle_names[0]);
       SERIAL_PORT.print(F(","));
