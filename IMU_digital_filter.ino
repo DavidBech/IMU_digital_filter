@@ -16,7 +16,7 @@ uint32_t calibration_offsets[2][4];
 ICM_20948_I2C myICM[2]; // Otherwise create an ICM_20948_I2C object
 
 void quat_to_euler(float* angles, double q0, double q1, double q2, double q3);
-double* process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, double* quats);
+void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, double* quats);
 void print_euler(double* quats, int id);
 void calibrate(unsigned sample);
 void measure();
@@ -25,7 +25,7 @@ void drain();
 void setup()
 {
 
-  SERIAL_PORT.begin(57600); // Start the serial console
+  SERIAL_PORT.begin(115200); // Start the serial console
 
   delay(100);
 
@@ -170,10 +170,9 @@ void setup()
 }
 
 void loop(){
-  unsigned calibration_length = 1000;
-  unsigned measure_length = 10000;
+  unsigned calibration_length = 666;
+  int read_result;
 
-  SERIAL_PORT.print("Start Calibration\n");
   calibration_offsets[0][1] = 0;
   calibration_offsets[0][2] = 0;
   calibration_offsets[0][3] = 0;
@@ -181,17 +180,28 @@ void loop(){
   calibration_offsets[1][2] = 0;
   calibration_offsets[1][3] = 0;
 
-  //for(unsigned i=0; i<calibration_length; ++i){
-  //  calibrate(i);
-  //}
+  while (Serial.available()) Serial.read();
 
-  SERIAL_PORT.print("Start Exercise\n");
-  for(unsigned i=0; i<measure_length; ++i){
+  do {
+    read_result = SERIAL_PORT.read();
+  } while (read_result == -1);
+  SERIAL_PORT.println(read_result);
+
+  //SERIAL_PORT.println("Start Calibration");
+  for(unsigned i=0; i<calibration_length; ++i){
+    calibrate(i);
+  }
+
+  SERIAL_PORT.println("Start Exercise");
+  while(true){
     measure();
+    read_result = SERIAL_PORT.read();
+    if(read_result != -1){
+      break;
+    }
   }
 
 
-  SERIAL_PORT.print("Done Exercise\n");
   delay(100);
 
 }
@@ -360,7 +370,7 @@ void print_euler(double* quats, int id){
       SERIAL_PORT.print(F(","));
       SERIAL_PORT.print(angles[1], 3);
       SERIAL_PORT.print(F(","));
-      SERIAL_PORT.println(angles[2], 3);
+      SERIAL_PORT.print(angles[2], 3);
       SERIAL_PORT.write(10);
       SERIAL_PORT.write(13);
     #else 
