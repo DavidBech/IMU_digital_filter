@@ -3,9 +3,11 @@
 #define SERIAL_PORT Serial
 
 #define USE_2_SENSORS
+
 #define MATLAB
 
-#define WIRE_PORT Wire // Your desired Wire port.      Used when "USE_SPI" is not defined
+#define WIRE_PORT Wire // Your desired Wire port.
+
 // The value of the last bit of the I2C address.
 // On the SparkFun 9DoF IMU breakout the default is 1, and when the ADR jumper is closed the value becomes 0
 #define AD0_VAL 1
@@ -14,7 +16,7 @@
 int32_t calibration_offsets[2][4];
 int64_t calibration_calc[2][4];
 
-ICM_20948_I2C myICM[2]; // Otherwise create an ICM_20948_I2C object
+ICM_20948_I2C myICM[2];
 
 void quat_to_euler(float* angles, double q0, double q1, double q2, double q3);
 void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, double* quats);
@@ -23,315 +25,305 @@ void calibrate(unsigned sample);
 void measure();
 void drain();
 
-void setup()
-{
+void setup(){
+    SERIAL_PORT.begin(115200); // Start the serial console
 
-  SERIAL_PORT.begin(115200); // Start the serial console
+    delay(100);
 
-  delay(100);
+    // Make sure the serial RX buffer is empty
+    while (SERIAL_PORT.available()) SERIAL_PORT.read();
 
-  while (SERIAL_PORT.available()) // Make sure the serial RX buffer is empty
-  SERIAL_PORT.read();
+    SERIAL_PORT.println(F("Press any key to continue..."));
+    
+    while (!SERIAL_PORT.available());
+    //TODO: should we consume these characters
 
-  SERIAL_PORT.println(F("Press any key to continue..."));
+    WIRE_PORT.begin();
+    WIRE_PORT.setClock(400000);
 
-  while (!SERIAL_PORT.available()) // Wait for the user to press a key (send any serial character)
-    ;
+    //myICM[0].enableDebugging(); // Uncomment this line to enable helpful debug messages on Serial
+    //myICM[1].enableDebugging();
 
-  WIRE_PORT.begin();
-  WIRE_PORT.setClock(400000);
+    bool initialized = false;
+    while (!initialized){
+      // Initialize the ICM-20948
+      // If the DMP is enabled, .begin performs a minimal startup. We need to configure the sample mode etc. manually.
+      myICM[0].begin(WIRE_PORT, AD0_VAL);
+      #ifdef USE_2_SENSORS
+      myICM[1].begin(WIRE_PORT, AD0_VAL_1);
+      #endif
 
-  //myICM[0].enableDebugging(); // Uncomment this line to enable helpful debug messages on Serial
-  //myICM[1].enableDebugging();
+      SERIAL_PORT.print(F("Initialization of the sensor returned: "));
+      SERIAL_PORT.println(myICM[0].statusString());
+      #ifdef USE_2_SENSORS
+      SERIAL_PORT.println(myICM[1].statusString());
+      #endif
 
-  bool initialized = false;
-  while (!initialized)
-  {
+      #ifdef USE_2_SENSORS
+      if (myICM[0].status != ICM_20948_Stat_Ok || myICM[1].status != ICM_20948_Stat_Ok)
+      #else 
+      if (myICM[0].status != ICM_20948_Stat_Ok)
+      #endif
+      {
 
-    // Initialize the ICM-20948
-    // If the DMP is enabled, .begin performs a minimal startup. We need to configure the sample mode etc. manually.
-
-    myICM[0].begin(WIRE_PORT, AD0_VAL); // WAS AD0_VAL
-    #ifdef USE_2_SENSORS
-    myICM[1].begin(WIRE_PORT, AD0_VAL_1);
-    #endif
-
-    SERIAL_PORT.print(F("Initialization of the sensor returned: "));
-    SERIAL_PORT.println(myICM[0].statusString());
-    SERIAL_PORT.println(myICM[1].statusString());
-
-    #ifdef USE_2_SENSORS
-    if (myICM[0].status != ICM_20948_Stat_Ok || myICM[1].status != ICM_20948_Stat_Ok)
-    #else 
-    if (myICM[0].status != ICM_20948_Stat_Ok)
-    #endif
-    {
-
-      SERIAL_PORT.println(F("Trying again..."));
-      delay(500);
-    } else {
-      initialized = true;
+        SERIAL_PORT.println(F("Trying again..."));
+        delay(500);
+      } else {
+        initialized = true;
+      }
     }
-  }
 
-  SERIAL_PORT.println(F("Device connected!"));
+    SERIAL_PORT.println(F("Device connected!"));
 
-  bool success = true; // Use success to show if the DMP configuration was successful
+    bool success = true; // Use success to show if the DMP configuration was successful
 
-  // Initialize the DMP. initializeDMP is a weak function. You can overwrite it if you want to e.g. to change the sample rate
-  success &= (myICM[0].initializeDMP() == ICM_20948_Stat_Ok);
+    // Initialize the DMP. initializeDMP is a weak function. You can overwrite it if you want to e.g. to change the sample rate
+    success &= (myICM[0].initializeDMP() == ICM_20948_Stat_Ok);
 
-  #ifdef USE_2_SENSORS
-  success &= (myICM[1].initializeDMP() == ICM_20948_Stat_Ok);
-  #endif
-  // DMP sensor options are defined in ICM_20948_DMP.h
-  //    INV_ICM20948_SENSOR_ACCELEROMETER               (16-bit accel)
-  //    INV_ICM20948_SENSOR_GYROSCOPE                   (16-bit gyro + 32-bit calibrated gyro)
-  //    INV_ICM20948_SENSOR_RAW_ACCELEROMETER           (16-bit accel)
-  //    INV_ICM20948_SENSOR_RAW_GYROSCOPE               (16-bit gyro + 32-bit calibrated gyro)
-  //    INV_ICM20948_SENSOR_MAGNETIC_FIELD_UNCALIBRATED (16-bit compass)
-  //    INV_ICM20948_SENSOR_GYROSCOPE_UNCALIBRATED      (16-bit gyro)
-  //    INV_ICM20948_SENSOR_STEP_DETECTOR               (Pedometer Step Detector)
-  //    INV_ICM20948_SENSOR_STEP_COUNTER                (Pedometer Step Detector)
-  //    INV_ICM20948_SENSOR_GAME_ROTATION_VECTOR        (32-bit 6-axis quaternion)
-  //    INV_ICM20948_SENSOR_ROTATION_VECTOR             (32-bit 9-axis quaternion + heading accuracy)
-  //    INV_ICM20948_SENSOR_GEOMAGNETIC_ROTATION_VECTOR (32-bit Geomag RV + heading accuracy)
-  //    INV_ICM20948_SENSOR_GEOMAGNETIC_FIELD           (32-bit calibrated compass)
-  //    INV_ICM20948_SENSOR_GRAVITY                     (32-bit 6-axis quaternion)
-  //    INV_ICM20948_SENSOR_LINEAR_ACCELERATION         (16-bit accel + 32-bit 6-axis quaternion)
-  //    INV_ICM20948_SENSOR_ORIENTATION                 (32-bit 9-axis quaternion + heading accuracy)
-
-  // Enable the DMP orientation sensor
-  success &= (myICM[0].enableDMPSensor(INV_ICM20948_SENSOR_ORIENTATION) == ICM_20948_Stat_Ok);
-  
-  #ifdef USE_2_SENSORS
-  success &= (myICM[1].enableDMPSensor(INV_ICM20948_SENSOR_ORIENTATION) == ICM_20948_Stat_Ok);
-  #endif
-
-  // Enable any additional sensors / features
-  //success &= (myICM.enableDMPSensor(INV_ICM20948_SENSOR_RAW_GYROSCOPE) == ICM_20948_Stat_Ok);
-  //success &= (myICM.enableDMPSensor(INV_ICM20948_SENSOR_RAW_ACCELEROMETER) == ICM_20948_Stat_Ok);
-  //success &= (myICM.enableDMPSensor(INV_ICM20948_SENSOR_MAGNETIC_FIELD_UNCALIBRATED) == ICM_20948_Stat_Ok);
-
-  // Configuring DMP to output data at multiple ODRs:
-  // DMP is capable of outputting multiple sensor data at different rates to FIFO.
-  // Setting value can be calculated as follows:
-  // Value = (DMP running rate / ODR ) - 1
-  // E.g. For a 5Hz ODR rate when DMP is running at 55Hz, value = (55/5) - 1 = 10.
-  success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Quat9, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-
-  #ifdef USE_2_SENSORS
-  success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Quat9, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-  #endif
-
-  //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Accel, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-  //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Gyro, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-  //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Gyro_Calibr, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-  //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Cpass, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-  //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Cpass_Calibr, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-
-  // Enable the FIFO
-  success &= (myICM[0].enableFIFO() == ICM_20948_Stat_Ok);
-  #ifdef USE_2_SENSORS
-  success &= (myICM[1].enableFIFO() == ICM_20948_Stat_Ok);
-  #endif
-
-  // Enable the DMP
-  success &= (myICM[0].enableDMP() == ICM_20948_Stat_Ok);
     #ifdef USE_2_SENSORS
-  success &= (myICM[1].enableDMP() == ICM_20948_Stat_Ok);
-  #endif
+    success &= (myICM[1].initializeDMP() == ICM_20948_Stat_Ok);
+    #endif
+    // DMP sensor options are defined in ICM_20948_DMP.h
+    //    INV_ICM20948_SENSOR_ACCELEROMETER               (16-bit accel)
+    //    INV_ICM20948_SENSOR_GYROSCOPE                   (16-bit gyro + 32-bit calibrated gyro)
+    //    INV_ICM20948_SENSOR_RAW_ACCELEROMETER           (16-bit accel)
+    //    INV_ICM20948_SENSOR_RAW_GYROSCOPE               (16-bit gyro + 32-bit calibrated gyro)
+    //    INV_ICM20948_SENSOR_MAGNETIC_FIELD_UNCALIBRATED (16-bit compass)
+    //    INV_ICM20948_SENSOR_GYROSCOPE_UNCALIBRATED      (16-bit gyro)
+    //    INV_ICM20948_SENSOR_STEP_DETECTOR               (Pedometer Step Detector)
+    //    INV_ICM20948_SENSOR_STEP_COUNTER                (Pedometer Step Detector)
+    //    INV_ICM20948_SENSOR_GAME_ROTATION_VECTOR        (32-bit 6-axis quaternion)
+    //    INV_ICM20948_SENSOR_ROTATION_VECTOR             (32-bit 9-axis quaternion + heading accuracy)
+    //    INV_ICM20948_SENSOR_GEOMAGNETIC_ROTATION_VECTOR (32-bit Geomag RV + heading accuracy)
+    //    INV_ICM20948_SENSOR_GEOMAGNETIC_FIELD           (32-bit calibrated compass)
+    //    INV_ICM20948_SENSOR_GRAVITY                     (32-bit 6-axis quaternion)
+    //    INV_ICM20948_SENSOR_LINEAR_ACCELERATION         (16-bit accel + 32-bit 6-axis quaternion)
+    //    INV_ICM20948_SENSOR_ORIENTATION                 (32-bit 9-axis quaternion + heading accuracy)
 
-  // Reset DMP
-  success &= (myICM[0].resetDMP() == ICM_20948_Stat_Ok);
-  #ifdef USE_2_SENSORS
-  success &= (myICM[1].resetDMP() == ICM_20948_Stat_Ok);
-  #endif 
+    // Enable the DMP orientation sensor
+    success &= (myICM[0].enableDMPSensor(INV_ICM20948_SENSOR_ORIENTATION) == ICM_20948_Stat_Ok);
+  
+    #ifdef USE_2_SENSORS
+    success &= (myICM[1].enableDMPSensor(INV_ICM20948_SENSOR_ORIENTATION) == ICM_20948_Stat_Ok);
+    #endif
 
-  // Reset FIFO
-  success &= (myICM[0].resetFIFO() == ICM_20948_Stat_Ok);
-  #ifdef USE_2_SENSORS
-  success &= (myICM[1].resetFIFO() == ICM_20948_Stat_Ok);
-  #endif
+    // Enable any additional sensors / features
+    //success &= (myICM.enableDMPSensor(INV_ICM20948_SENSOR_RAW_GYROSCOPE) == ICM_20948_Stat_Ok);
+    //success &= (myICM.enableDMPSensor(INV_ICM20948_SENSOR_RAW_ACCELEROMETER) == ICM_20948_Stat_Ok);
+    //success &= (myICM.enableDMPSensor(INV_ICM20948_SENSOR_MAGNETIC_FIELD_UNCALIBRATED) == ICM_20948_Stat_Ok);
 
-  // Check success
-  if (success){
-    SERIAL_PORT.println(F("DMP enabled!"));
-  } else {
-    SERIAL_PORT.println(F("Enable DMP failed!"));
-    SERIAL_PORT.println(F("Please check that you have uncommented line 29 (#define ICM_20948_USE_DMP) in ICM_20948_C.h..."));
-    while (1); // Do nothing more
-  }
+    // Configuring DMP to output data at multiple ODRs:
+    // DMP is capable of outputting multiple sensor data at different rates to FIFO.
+    // Setting value can be calculated as follows:
+    // Value = (DMP running rate / ODR ) - 1
+    // E.g. For a 5Hz ODR rate when DMP is running at 55Hz, value = (55/5) - 1 = 10.
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Quat9, 0) == ICM_20948_Stat_Ok); // Set to the maximum
 
-  SERIAL_PORT.println("Start Drain");
-  unsigned drain_length = 2000;
-  for(unsigned i=0; i<drain_length; ++i){
-    drain();
-  }
+    #ifdef USE_2_SENSORS
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Quat9, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    #endif
+
+    //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Accel, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Gyro, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Gyro_Calibr, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Cpass, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Cpass_Calibr, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+
+    // Enable the FIFO
+    success &= (myICM[0].enableFIFO() == ICM_20948_Stat_Ok);
+    #ifdef USE_2_SENSORS
+    success &= (myICM[1].enableFIFO() == ICM_20948_Stat_Ok);
+    #endif
+
+    // Enable the DMP
+    success &= (myICM[0].enableDMP() == ICM_20948_Stat_Ok);
+      #ifdef USE_2_SENSORS
+    success &= (myICM[1].enableDMP() == ICM_20948_Stat_Ok);
+    #endif
+
+    // Reset DMP
+    success &= (myICM[0].resetDMP() == ICM_20948_Stat_Ok);
+    #ifdef USE_2_SENSORS
+    success &= (myICM[1].resetDMP() == ICM_20948_Stat_Ok);
+    #endif 
+
+    // Reset FIFO
+    success &= (myICM[0].resetFIFO() == ICM_20948_Stat_Ok);
+    #ifdef USE_2_SENSORS
+    success &= (myICM[1].resetFIFO() == ICM_20948_Stat_Ok);
+    #endif
+
+    // Check success
+    if (success){
+      SERIAL_PORT.println(F("DMP enabled!"));
+    } else {
+      SERIAL_PORT.println(F("Enable DMP failed!"));
+      SERIAL_PORT.println(F("Please check that you have uncommented line 29 (#define ICM_20948_USE_DMP) in ICM_20948_C.h..."));
+      while (1); // Do nothing more
+    }
+
+    SERIAL_PORT.println("Start Drain");
+    unsigned drain_length = 2000;
+    for(unsigned i=0; i<drain_length; ++i){
+        drain();
+    }
 }
 
 void loop(){
-  unsigned calibration_length = 600;
-  int read_result;
+    unsigned calibration_length = 600;
+    int read_result = -1;
+    bool success = true; 
 
-  calibration_offsets[0][1] = 0;
-  calibration_offsets[0][2] = 0;
-  calibration_offsets[0][3] = 0;
-  calibration_offsets[1][1] = 0;
-  calibration_offsets[1][2] = 0;
-  calibration_offsets[1][3] = 0;
-  calibration_calc[0][1] = 0;
-  calibration_calc[0][2] = 0;
-  calibration_calc[0][3] = 0;
-  calibration_calc[1][1] = 0;
-  calibration_calc[1][2] = 0;
-  calibration_calc[1][3] = 0;
-  while (SERIAL_PORT.available()) SERIAL_PORT.read();
-  SERIAL_PORT.println("Waiting For Calibration Start");
-  do {
-    read_result = SERIAL_PORT.read();
-  } while (read_result == -1);
-  SERIAL_PORT.println(read_result);
+    calibration_offsets[0][1] = 0;
+    calibration_offsets[0][2] = 0;
+    calibration_offsets[0][3] = 0;
+    calibration_offsets[1][1] = 0;
+    calibration_offsets[1][2] = 0;
+    calibration_offsets[1][3] = 0;
+    calibration_calc[0][1] = 0;
+    calibration_calc[0][2] = 0;
+    calibration_calc[0][3] = 0;
+    calibration_calc[1][1] = 0;
+    calibration_calc[1][2] = 0;
+    calibration_calc[1][3] = 0;
 
-  SERIAL_PORT.println("Start Calibration");
-  for(unsigned i=0; i<calibration_length; ++i){
-    calibrate(i);
-  }
-  
-  calibration_offsets[0][1] = calibration_calc[0][1];
-  calibration_offsets[0][2] = calibration_calc[0][2];
-  calibration_offsets[0][3] = calibration_calc[0][3];
-  calibration_offsets[1][1] = calibration_calc[1][1];
-  calibration_offsets[1][2] = calibration_calc[1][2];
-  calibration_offsets[1][3] = calibration_calc[1][3];
-  
-  // SERIAL_PORT.println("Calibration Values0:");
-  // SERIAL_PORT.print(calibration_offsets[0][1]);
-  // SERIAL_PORT.print(" ");
-  // SERIAL_PORT.print(calibration_offsets[0][2]);
-  // SERIAL_PORT.print(" ");
-  // SERIAL_PORT.println(calibration_offsets[0][3]);
-  // #ifdef USE_2_SENSORS
-  // SERIAL_PORT.println("Calibration Values1:");
-  // SERIAL_PORT.print(calibration_offsets[1][1]);
-  // SERIAL_PORT.print(" ");
-  // SERIAL_PORT.print(calibration_offsets[1][2]);
-  // SERIAL_PORT.print(" ");
-  // SERIAL_PORT.println(calibration_offsets[1][3]);
-  // #endif
+    while (SERIAL_PORT.available()) SERIAL_PORT.read();
+    SERIAL_PORT.println("Waiting For Calibration Start");
+    do {
+      read_result = SERIAL_PORT.read();
+    } while (read_result == -1);
+    SERIAL_PORT.println(read_result);
 
-  SERIAL_PORT.println("Start Exercise");
-  while (SERIAL_PORT.available()) SERIAL_PORT.read();
-  
-  while(true){
-    measure();
-    read_result = SERIAL_PORT.read();
-    if(read_result != -1){
-      break;
+    // Reset FIFO
+    success &= (myICM[0].resetFIFO() == ICM_20948_Stat_Ok);
+    #ifdef USE_2_SENSORS
+    success &= (myICM[1].resetFIFO() == ICM_20948_Stat_Ok);
+    #endif
+
+    if(!success){
+        SERIAL_PORT.println("Reset FIFO Failed");
     }
-  }
+
+    SERIAL_PORT.println("Start Calibration");
+    for(unsigned i=0; i<calibration_length; ++i){
+        calibrate(i);
+    }
+  
+    calibration_offsets[0][1] = calibration_calc[0][1];
+    calibration_offsets[0][2] = calibration_calc[0][2];
+    calibration_offsets[0][3] = calibration_calc[0][3];
+    calibration_offsets[1][1] = calibration_calc[1][1];
+    calibration_offsets[1][2] = calibration_calc[1][2];
+    calibration_offsets[1][3] = calibration_calc[1][3];
+  
+    SERIAL_PORT.println("Start Exercise");
+    while (SERIAL_PORT.available()) SERIAL_PORT.read();
+  
+    while(true){
+        measure();
+        read_result = SERIAL_PORT.read();
+        if(read_result != -1){
+          break;
+        }
+    }
 
 
-  delay(100);
-
+    //delay(100);
 }
 
 void calibrate(unsigned sample){
-  icm_20948_DMP_data_t sensor_data[2];
-  ICM_20948_Status_e status;
-  bool wait = 1;
+    icm_20948_DMP_data_t sensor_data[2];
+    ICM_20948_Status_e status;
+    bool wait = 1;
 
-  #ifdef USE_2_SENSORS
-  for(int i = 0; i < 2; ++i){
-  #else
-  int i = 0;
-  #endif
+    #ifdef USE_2_SENSORS
+    for(int i = 0; i < 2; ++i){
+    #else
+    int i = 0;
+    #endif
 
-    status = myICM[i].readDMPdataFromFIFO(&sensor_data[i]);
-    if(status == ICM_20948_Stat_Ok || status == ICM_20948_Stat_FIFOMoreDataAvail){
-      calibration_calc[i][1] = (sensor_data[i].Quat9.Data.Q1 + (calibration_calc[i][1]*sample))/(sample + 1);
-      calibration_calc[i][2] = (sensor_data[i].Quat9.Data.Q2 + (calibration_calc[i][2]*sample))/(sample + 1);
-      calibration_calc[i][3] = (sensor_data[i].Quat9.Data.Q3 + (calibration_calc[i][3]*sample))/(sample + 1);
-      wait = 0;
-    } else {
-        wait &= 1;
+        status = myICM[i].readDMPdataFromFIFO(&sensor_data[i]);
+        if(status == ICM_20948_Stat_Ok || status == ICM_20948_Stat_FIFOMoreDataAvail){
+            calibration_calc[i][1] = (sensor_data[i].Quat9.Data.Q1 + (calibration_calc[i][1]*sample))/(sample + 1);
+            calibration_calc[i][2] = (sensor_data[i].Quat9.Data.Q2 + (calibration_calc[i][2]*sample))/(sample + 1);
+            calibration_calc[i][3] = (sensor_data[i].Quat9.Data.Q3 + (calibration_calc[i][3]*sample))/(sample + 1);
+            wait = 0;
+        } else {
+            wait &= 1;
+        }
+    #ifdef USE_2_SENSORS
     }
-  #ifdef USE_2_SENSORS
-  }
-  #endif
-  if(wait){
-    delay(10);
-  }
-  
+    #endif
+
+    if(wait){
+        delay(10);
+    }
 }
 
 void drain(){
-  icm_20948_DMP_data_t data;
-  ICM_20948_Status_e status;
-  bool wait = 1;
+    icm_20948_DMP_data_t data;
+    ICM_20948_Status_e status;
+    bool wait = 1;
 
-  #ifdef USE_2_SENSORS
-  for(int i = 0; i < 2; ++i){
-  #else
-  int i = 0;
-  #endif
+    #ifdef USE_2_SENSORS
+    for(int i = 0; i < 2; ++i){
+    #else
+    int i = 0;
+    #endif
 
-    status = myICM[i].readDMPdataFromFIFO(&data);
-    if(status == ICM_20948_Stat_FIFONoDataAvail ||  ICM_20948_Stat_FIFOIncompleteData){
-        wait &=1;
-    } else {
-        wait = 0; // Data was read
+        status = myICM[i].readDMPdataFromFIFO(&data);
+        if(status == ICM_20948_Stat_FIFONoDataAvail ||  ICM_20948_Stat_FIFOIncompleteData){
+            wait &=1;
+        } else {
+            wait = 0; // Data was read
+        }
+
+
+    #ifdef USE_2_SENSORS
     }
-
-
-  #ifdef USE_2_SENSORS
-  }
+    #endif
 
     if(wait) {
        delay(10);
     }
 
-  #endif
 }
 
 void measure(){
-  double data[4];
-  bool wait[2];
-  // Read any DMP data waiting in the FIFO
-  // Note:
-  //    readDMPdataFromFIFO will return ICM_20948_Stat_FIFONoDataAvail if no data is available.
-  //    If data is available, readDMPdataFromFIFO will attempt to read _one_ frame of DMP data.
-  //    readDMPdataFromFIFO will return ICM_20948_Stat_FIFOIncompleteData if a frame was present but was incomplete
-  //    readDMPdataFromFIFO will return ICM_20948_Stat_Ok if a valid frame was read.
-  //    readDMPdataFromFIFO will return ICM_20948_Stat_FIFOMoreDataAvail if a valid frame was read _and_ the FIFO contains more (unread) data.
-  icm_20948_DMP_data_t sensor_data[2];
-  ICM_20948_Status_e status;
-  
-  status =  myICM[0].readDMPdataFromFIFO(&sensor_data[0]);
-  if(status == ICM_20948_Stat_Ok || status == ICM_20948_Stat_FIFOMoreDataAvail){
-    process_data(&sensor_data[0], &myICM[0], 0, data);
-    print_euler(data, 0);
-    wait[0] = 0;
-  } else {
-    wait[0] = 1;
-  }
+    double data[4];
+    bool wait = 1;
+    // Read any DMP data waiting in the FIFO
+    // Note:
+    //    readDMPdataFromFIFO will return ICM_20948_Stat_FIFONoDataAvail if no data is available.
+    //    If data is available, readDMPdataFromFIFO will attempt to read _one_ frame of DMP data.
+    //    readDMPdataFromFIFO will return ICM_20948_Stat_FIFOIncompleteData if a frame was present but was incomplete
+    //    readDMPdataFromFIFO will return ICM_20948_Stat_Ok if a valid frame was read.
+    //    readDMPdataFromFIFO will return ICM_20948_Stat_FIFOMoreDataAvail if a valid frame was read _and_ the FIFO contains more (unread) data.
+    icm_20948_DMP_data_t sensor_data[2];
+    ICM_20948_Status_e status;
 
-  #ifdef USE_2_SENSORS
-  status = myICM[1].readDMPdataFromFIFO(&sensor_data[1]);
+    #ifdef USE_2_SENSORS
+    for(int i = 0; i < 2; ++i){
+    #else
+    int i = 0;
+    #endif
 
-  if(status == ICM_20948_Stat_Ok || status == ICM_20948_Stat_FIFOMoreDataAvail){
-    process_data(&sensor_data[1], &myICM[1], 1, data);
-    print_euler(data, 1);
-    wait[1] = 0;
-  } else {
-    wait[1] = 1;
-  }
-  #endif
+        status =  myICM[i].readDMPdataFromFIFO(&sensor_data[i]);
+        if(status == ICM_20948_Stat_Ok || status == ICM_20948_Stat_FIFOMoreDataAvail){
+          process_data(&sensor_data[i], &myICM[i], 0, data);
+          print_euler(data, 0);
+          wait = 0;
+        } else {
+          wait &= 1;
+        }
 
+    #ifdef USE_2_SENSORS
+    }
+    #endif
 
-  if (wait[0] && wait[1]){
-    delay(10);
-  }
+    if (wait){
+      delay(10);
+    }
 }
 
 void quat_to_euler(float* angles, double q0, double q1, double q2, double q3){
@@ -360,19 +352,16 @@ void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id, dou
     // We have asked for orientation data so we should receive Quat9
     if ((data->header & DMP_header_bitmap_Quat9) > 0) {
 
-      //SERIAL_PORT.printf("Quat9 data is: Q1:%ld Q2:%ld Q3:%ld Accuracy:%d\r\n", data.Quat9.Data.Q1, data.Quat9.Data.Q2, data.Quat9.Data.Q3, data.Quat9.Data.Accuracy);
-
-      // Scale to +/- 1
-      quats[1] = (double)(data->Quat9.Data.Q1 - calibration_offsets[id][1]) / 1073741824.0;
-      quats[2] = (double)(data->Quat9.Data.Q2 - calibration_offsets[id][2]) / 1073741824.0;
-      quats[3] = (double)(data->Quat9.Data.Q3 - calibration_offsets[id][3]) / 1073741824.0;
-      // SERIAL_PORT.print(data->Quat9.Data.Q1);
-      // SERIAL_PORT.print(" ");
-      // SERIAL_PORT.print(data->Quat9.Data.Q2);
-      // SERIAL_PORT.print(" ");
-      // SERIAL_PORT.print(data->Quat9.Data.Q3);
-      // SERIAL_PORT.println("");
-      quats[0] = sqrt(1.0 - ((quats[1] * quats[1]) + (quats[2] * quats[2]) + (quats[3] * quats[3])));
+        quats[1] = (double)(data->Quat9.Data.Q1 - calibration_offsets[id][1]) / 1073741824.0;
+        quats[2] = (double)(data->Quat9.Data.Q2 - calibration_offsets[id][2]) / 1073741824.0;
+        quats[3] = (double)(data->Quat9.Data.Q3 - calibration_offsets[id][3]) / 1073741824.0;
+        // SERIAL_PORT.print(data->Quat9.Data.Q1);
+        // SERIAL_PORT.print(" ");
+        // SERIAL_PORT.print(data->Quat9.Data.Q2);
+        // SERIAL_PORT.print(" ");
+        // SERIAL_PORT.print(data->Quat9.Data.Q3);
+        // SERIAL_PORT.println("");
+        quats[0] = sqrt(1.0 - ((quats[1] * quats[1]) + (quats[2] * quats[2]) + (quats[3] * quats[3])));
     }
   }
 }
