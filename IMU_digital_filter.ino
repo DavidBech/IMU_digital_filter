@@ -2,7 +2,7 @@
 
 #define SERIAL_PORT Serial
 
-#define USE_2_SENSORS
+//#define USE_2_SENSORS
 
 #define MATLAB
 
@@ -19,8 +19,8 @@ int64_t calibration_calc[2][4];
 ICM_20948_I2C myICM[2];
 
 void quat_to_euler(float* angles, double q0, double q1, double q2, double q3);
-void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, double* quats);
-void print_euler(double* quats, int id);
+void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, double* quats, double* other_data);
+void print_euler(double* quats, double* other_data, int id);
 void calibrate(unsigned sample);
 void measure();
 void drain();
@@ -102,7 +102,11 @@ void setup(){
 
     // Enable the DMP orientation sensor
     success &= (myICM[0].enableDMPSensor(INV_ICM20948_SENSOR_ORIENTATION) == ICM_20948_Stat_Ok);
-  
+    success &= (myICM[0].enableDMPSensor(INV_ICM20948_SENSOR_ACCELEROMETER) == ICM_20948_Stat_Ok);
+    //success &= (myICM[0].enableDMPSensor(INV_ICM20948_SENSOR_RAW_ACCELEROMETER) == ICM_20948_Stat_Ok);
+    //success &= (myICM[0].enableDMPSensor(INV_ICM20948_SENSOR_GYROSCOPE) == ICM_20948_Stat_Ok);
+    success &= (myICM[0].enableDMPSensor(INV_ICM20948_SENSOR_GEOMAGNETIC_FIELD) == ICM_20948_Stat_Ok);
+
     #ifdef USE_2_SENSORS
     success &= (myICM[1].enableDMPSensor(INV_ICM20948_SENSOR_ORIENTATION) == ICM_20948_Stat_Ok);
     #endif
@@ -118,6 +122,11 @@ void setup(){
     // Value = (DMP running rate / ODR ) - 1
     // E.g. For a 5Hz ODR rate when DMP is running at 55Hz, value = (55/5) - 1 = 10.
     success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Quat9, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Accel, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Gyro, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Gyro_Calibr, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Cpass, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Cpass_Calibr, 0) == ICM_20948_Stat_Ok); // Set to the maximum
 
     #ifdef USE_2_SENSORS
     success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Quat9, 0) == ICM_20948_Stat_Ok); // Set to the maximum
@@ -163,7 +172,7 @@ void setup(){
     }
 
     SERIAL_PORT.println("Start Drain");
-    unsigned drain_length = 2000;
+    unsigned drain_length = 500;
     for(unsigned i=0; i<drain_length; ++i){
         drain();
     }
@@ -290,8 +299,12 @@ void drain(){
 }
 
 void measure(){
-    double data[4];
+    double quats[4];
+    double other_data[10];
     bool wait = 1;
+
+    memset(&other_data[0], 0, sizeof(other_data));
+
     // Read any DMP data waiting in the FIFO
     // Note:
     //    readDMPdataFromFIFO will return ICM_20948_Stat_FIFONoDataAvail if no data is available.
@@ -310,8 +323,8 @@ void measure(){
 
         status =  myICM[i].readDMPdataFromFIFO(&sensor_data[i]);
         if(status == ICM_20948_Stat_Ok || status == ICM_20948_Stat_FIFOMoreDataAvail){
-          process_data(&sensor_data[i], &myICM[i], 0, data);
-          print_euler(data, 0);
+          process_data(&sensor_data[i], &myICM[i], 0, quats, other_data);
+          print_euler(quats, other_data, i);
           wait = 0;
         } else {
           wait &= 1;
@@ -347,7 +360,7 @@ void quat_to_euler(float* angles, double q0, double q1, double q2, double q3){
     angles[2] *= 180.0f/3.14159265358979323846f;
 }
 
-void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id, double* quats){
+void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id, double* quats, double* other_data){
   if ((myICM->status == ICM_20948_Stat_Ok) || (myICM->status == ICM_20948_Stat_FIFOMoreDataAvail))  {
     // We have asked for orientation data so we should receive Quat9
     if ((data->header & DMP_header_bitmap_Quat9) > 0) {
@@ -362,11 +375,33 @@ void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id, dou
         // SERIAL_PORT.print(data->Quat9.Data.Q3);
         // SERIAL_PORT.println("");
         quats[0] = sqrt(1.0 - ((quats[1] * quats[1]) + (quats[2] * quats[2]) + (quats[3] * quats[3])));
+
+    } 
+    if((data->header & DMP_header_bitmap_Compass_Calibr) > 0){
+        other_data[3] = ((double)data->Compass_Calibr.Data.X)/(65536.0);
+        other_data[4] = ((double)data->Compass_Calibr.Data.Y)/(65536.0);
+        other_data[5] = ((double)data->Compass_Calibr.Data.Z)/(65536.0);
+    } 
+    if((data->header & DMP_header_bitmap_Gyro_Calibr) > 0){
+
+    } 
+    if((data->header & DMP_header_bitmap_Geomag) > 0){
+
+    } 
+    if((data->header & DMP_header_bitmap_Gyro) > 0){
+
+    } 
+    if((data->header & DMP_header_bitmap_Accel) > 0){
+        other_data[0] = (double)data->Raw_Accel.Data.X;
+        other_data[1] = (double)data->Raw_Accel.Data.Y;
+        other_data[2] = (double)data->Raw_Accel.Data.Z;
     }
+
+
   }
 }
 
-void print_euler(double* quats, int id){
+void print_euler(double* quats, double* other_data, int id){
     char angle_names[3][10];
     float angles[3];
 
@@ -391,7 +426,20 @@ void print_euler(double* quats, int id){
       SERIAL_PORT.print(F(","));
       SERIAL_PORT.print(angles[1], 3);
       SERIAL_PORT.print(F(","));
-      SERIAL_PORT.println(angles[2], 3);
+      SERIAL_PORT.print(angles[2], 3);
+      SERIAL_PORT.print(F(","));
+      SERIAL_PORT.print(other_data[0], 3);
+      SERIAL_PORT.print(F(","));
+      SERIAL_PORT.print(other_data[1], 3);
+      SERIAL_PORT.print(F(","));
+      SERIAL_PORT.print(other_data[2], 3);
+      SERIAL_PORT.print(F(","));
+      SERIAL_PORT.print(other_data[3], 3);
+      SERIAL_PORT.print(F(","));
+      SERIAL_PORT.print(other_data[4], 3);
+      SERIAL_PORT.print(F(","));
+      SERIAL_PORT.print(other_data[5], 3);
+      SERIAL_PORT.println();
       //SERIAL_PORT.write(10);
       //SERIAL_PORT.write(13);
       /*
