@@ -13,8 +13,9 @@
 #define AD0_VAL 1
 #define AD0_VAL_1 0
 
-int32_t calibration_offsets[2][4];
 int64_t calibration_calc[2][4];
+int32_t calibration_calc_32[2][4];
+double calibration_quat[2][4];
 
 ICM_20948_I2C myICM[2];
 
@@ -24,6 +25,8 @@ void print_euler(double* quats, double* other_data, int id);
 void calibrate(unsigned sample);
 void measure();
 void drain();
+void multiply_quats(double* result, double*q0, double* q1);
+void quats_fixed_to_double(double* result, uint32_t* fixed);
 
 void setup(){
     SERIAL_PORT.begin(115200); // Start the serial console
@@ -103,12 +106,14 @@ void setup(){
     // Enable the DMP orientation sensor
     success &= (myICM[0].enableDMPSensor(INV_ICM20948_SENSOR_ORIENTATION) == ICM_20948_Stat_Ok);
     success &= (myICM[0].enableDMPSensor(INV_ICM20948_SENSOR_ACCELEROMETER) == ICM_20948_Stat_Ok);
+    success &= (myICM[0].enableDMPSensor(INV_ICM20948_SENSOR_GEOMAGNETIC_FIELD) == ICM_20948_Stat_Ok);
     //success &= (myICM[0].enableDMPSensor(INV_ICM20948_SENSOR_RAW_ACCELEROMETER) == ICM_20948_Stat_Ok);
     //success &= (myICM[0].enableDMPSensor(INV_ICM20948_SENSOR_GYROSCOPE) == ICM_20948_Stat_Ok);
-    success &= (myICM[0].enableDMPSensor(INV_ICM20948_SENSOR_GEOMAGNETIC_FIELD) == ICM_20948_Stat_Ok);
 
     #ifdef USE_2_SENSORS
     success &= (myICM[1].enableDMPSensor(INV_ICM20948_SENSOR_ORIENTATION) == ICM_20948_Stat_Ok);
+    success &= (myICM[1].enableDMPSensor(INV_ICM20948_SENSOR_ACCELEROMETER) == ICM_20948_Stat_Ok);
+    success &= (myICM[1].enableDMPSensor(INV_ICM20948_SENSOR_GEOMAGNETIC_FIELD) == ICM_20948_Stat_Ok);
     #endif
 
     // Enable any additional sensors / features
@@ -130,6 +135,11 @@ void setup(){
 
     #ifdef USE_2_SENSORS
     success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Quat9, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Accel, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Gyro, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Gyro_Calibr, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Cpass, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Cpass_Calibr, 0) == ICM_20948_Stat_Ok); // Set to the maximum
     #endif
 
     //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Accel, 0) == ICM_20948_Stat_Ok); // Set to the maximum
@@ -183,12 +193,6 @@ void loop(){
     int read_result = -1;
     bool success = true; 
 
-    calibration_offsets[0][1] = 0;
-    calibration_offsets[0][2] = 0;
-    calibration_offsets[0][3] = 0;
-    calibration_offsets[1][1] = 0;
-    calibration_offsets[1][2] = 0;
-    calibration_offsets[1][3] = 0;
     calibration_calc[0][1] = 0;
     calibration_calc[0][2] = 0;
     calibration_calc[0][3] = 0;
@@ -218,13 +222,17 @@ void loop(){
         calibrate(i);
     }
   
-    calibration_offsets[0][1] = calibration_calc[0][1];
-    calibration_offsets[0][2] = calibration_calc[0][2];
-    calibration_offsets[0][3] = calibration_calc[0][3];
-    calibration_offsets[1][1] = calibration_calc[1][1];
-    calibration_offsets[1][2] = calibration_calc[1][2];
-    calibration_offsets[1][3] = calibration_calc[1][3];
-  
+    calibration_calc_32[0][1] = (int32_t)calibration_calc[0][1];
+    calibration_calc_32[0][2] = (int32_t)calibration_calc[0][2];
+    calibration_calc_32[0][3] = (int32_t)calibration_calc[0][3];
+
+    calibration_calc_32[1][1] = (int32_t)calibration_calc[1][1];
+    calibration_calc_32[1][2] = (int32_t)calibration_calc[1][2];
+    calibration_calc_32[1][3] = (int32_t)calibration_calc[1][3];
+
+    quats_fixed_to_double(&calibration_quat[0][0], &calibration_calc_32[0][0]);
+    quats_fixed_to_double(&calibration_quat[1][0], &calibration_calc_32[1][0]);
+
     SERIAL_PORT.println("Start Exercise");
     while (SERIAL_PORT.available()) SERIAL_PORT.read();
   
@@ -323,7 +331,8 @@ void measure(){
 
         status =  myICM[i].readDMPdataFromFIFO(&sensor_data[i]);
         if(status == ICM_20948_Stat_Ok || status == ICM_20948_Stat_FIFOMoreDataAvail){
-          process_data(&sensor_data[i], &myICM[i], 0, quats, other_data);
+          process_data(&sensor_data[i], &myICM[i], i, quats, other_data);
+          
           print_euler(quats, other_data, i);
           wait = 0;
         } else {
@@ -358,24 +367,44 @@ void quat_to_euler(float* angles, double q0, double q1, double q2, double q3){
     angles[0] *= 180.0f/3.14159265358979323846f;
     angles[1] *= 180.0f/3.14159265358979323846f;
     angles[2] *= 180.0f/3.14159265358979323846f;
+
+}
+
+void quats_fixed_to_double(double* result, uint32_t* fixed){
+    result[1] = (double)fixed[1] / 1073741824.0;
+    result[2] = (double)fixed[2] / 1073741824.0;
+    result[3] = (double)fixed[3] / 1073741824.0;
+    result[0] = sqrt(1.0 - ((result[1] * result[1]) + (result[2] * result[2]) + (result[3] * result[3])));
+}
+
+void multiply_quats(double* result, double*q0, double* q1){
+    result[0] = q0[0]*q1[0] - q0[1]*q1[1] - q0[2]*q1[2] - q0[3]*q1[3];
+    result[1] = q0[0]*q1[1] + q0[1]*q0[0] + q0[2]*q1[3] - q0[3]*q1[2];
+    result[2] = q0[0]*q1[2] - q0[1]*q0[3] + q0[2]*q1[0] + q0[3]*q1[1];
+    result[3] = q0[0]*q1[3] + q0[1]*q0[2] - q0[2]*q1[1] + q0[3]*q1[0];
 }
 
 void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id, double* quats, double* other_data){
   if ((myICM->status == ICM_20948_Stat_Ok) || (myICM->status == ICM_20948_Stat_FIFOMoreDataAvail))  {
     // We have asked for orientation data so we should receive Quat9
     if ((data->header & DMP_header_bitmap_Quat9) > 0) {
+        double temp[4];
+        uint32_t quats_fixed[4];
 
-        quats[1] = (double)(data->Quat9.Data.Q1 - calibration_offsets[id][1]) / 1073741824.0;
-        quats[2] = (double)(data->Quat9.Data.Q2 - calibration_offsets[id][2]) / 1073741824.0;
-        quats[3] = (double)(data->Quat9.Data.Q3 - calibration_offsets[id][3]) / 1073741824.0;
-        // SERIAL_PORT.print(data->Quat9.Data.Q1);
-        // SERIAL_PORT.print(" ");
-        // SERIAL_PORT.print(data->Quat9.Data.Q2);
-        // SERIAL_PORT.print(" ");
-        // SERIAL_PORT.print(data->Quat9.Data.Q3);
-        // SERIAL_PORT.println("");
-        quats[0] = sqrt(1.0 - ((quats[1] * quats[1]) + (quats[2] * quats[2]) + (quats[3] * quats[3])));
+        //quats[1] = (double)(data->Quat9.Data.Q1 - calibration_offsets[id][1]) / 1073741824.0;
+        //quats[2] = (double)(data->Quat9.Data.Q2 - calibration_offsets[id][2]) / 1073741824.0;
+        //quats[3] = (double)(data->Quat9.Data.Q3 - calibration_offsets[id][3]) / 1073741824.0;
+        //temp[1] = (double)(data->Quat9.Data.Q1) / 1073741824.0;
+        //temp[2] = (double)(data->Quat9.Data.Q2) / 1073741824.0;
+        //temp[3] = (double)(data->Quat9.Data.Q3) / 1073741824.0;
+        //temp[0] = sqrt(1.0 - ((temp[1] * temp[1]) + (temp[2] * temp[2]) + (temp[3] * temp[3])));
+        quats_fixed[1] = data->Quat9.Data.Q1;
+        quats_fixed[2] = data->Quat9.Data.Q2;
+        quats_fixed[3] = data->Quat9.Data.Q3;
+        quats_fixed_to_double(&temp[0], &quats_fixed[0]);
 
+        // todo: Multiplication is NON commutative we need to check if this order is correct
+        multiply_quats(quats, calibration_quat[id], &temp[0]);
     } 
     if((data->header & DMP_header_bitmap_Compass_Calibr) > 0){
         other_data[3] = ((double)data->Compass_Calibr.Data.X)/(65536.0);
