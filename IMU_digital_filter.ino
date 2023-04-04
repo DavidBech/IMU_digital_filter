@@ -2,7 +2,7 @@
 
 #define SERIAL_PORT Serial
 
-//#define USE_2_SENSORS
+#define USE_2_SENSORS
 
 #define MATLAB
 
@@ -182,14 +182,14 @@ void setup(){
     }
 
     SERIAL_PORT.println("Start Drain");
-    unsigned drain_length = 500;
+    unsigned drain_length = 1900;
     for(unsigned i=0; i<drain_length; ++i){
         drain();
     }
 }
 
 void loop(){
-    unsigned calibration_length = 600;
+    unsigned calibration_length = 1900;
     int read_result = -1;
     bool success = true; 
 
@@ -226,12 +226,40 @@ void loop(){
     calibration_calc_32[0][2] = (int32_t)calibration_calc[0][2];
     calibration_calc_32[0][3] = (int32_t)calibration_calc[0][3];
 
+    calibration_quat[0][1] = (double)(calibration_calc_32[0][1]) / 1073741824.0;
+    calibration_quat[0][2] = (double)(calibration_calc_32[0][2]) / 1073741824.0;
+    calibration_quat[0][3] = (double)(calibration_calc_32[0][3]) / 1073741824.0;
+
+    // calibration_quat[0][1] = (double)(calibration_calc[0][1]) / 1073741824.0;
+    // calibration_quat[0][2] = (double)(calibration_calc[0][2]) / 1073741824.0;
+    // calibration_quat[0][3] = (double)(calibration_calc[0][3]) / 1073741824.0;
+
+    calibration_quat[0][0] = sqrt(1.0 - ((calibration_quat[0][1] * calibration_quat[0][1]) + (calibration_quat[0][2] * calibration_quat[0][2]) + (calibration_quat[0][3] * calibration_quat[0][3])));
+
+    SERIAL_PORT.println("Calibration Value1");
+    SERIAL_PORT.println(calibration_quat[0][1]);
+    SERIAL_PORT.println(calibration_quat[0][2]);
+    SERIAL_PORT.println(calibration_quat[0][3]);
+    SERIAL_PORT.println(calibration_quat[0][0]);
+
+
     calibration_calc_32[1][1] = (int32_t)calibration_calc[1][1];
     calibration_calc_32[1][2] = (int32_t)calibration_calc[1][2];
     calibration_calc_32[1][3] = (int32_t)calibration_calc[1][3];
 
-    quats_fixed_to_double(&calibration_quat[0][0], &calibration_calc_32[0][0]);
-    quats_fixed_to_double(&calibration_quat[1][0], &calibration_calc_32[1][0]);
+    calibration_quat[1][1] = (double)(calibration_calc_32[1][1]) / 1073741824.0;
+    calibration_quat[1][2] = (double)(calibration_calc_32[1][2]) / 1073741824.0;
+    calibration_quat[1][3] = (double)(calibration_calc_32[1][3]) / 1073741824.0;
+    calibration_quat[1][0] = sqrt(1.0 - ((calibration_quat[1][1] * calibration_quat[1][1]) + (calibration_quat[1][2] * calibration_quat[1][2]) + (calibration_quat[1][3] * calibration_quat[1][3])));
+
+    SERIAL_PORT.println("Calibration Value2");
+    SERIAL_PORT.println(calibration_quat[1][1]);
+    SERIAL_PORT.println(calibration_quat[1][2]);
+    SERIAL_PORT.println(calibration_quat[1][3]);
+    SERIAL_PORT.println(calibration_quat[1][0]);
+
+    // quats_fixed_to_double(&calibration_quat[0][0], &calibration_calc_32[0][0]);
+    // quats_fixed_to_double(&calibration_quat[1][0], &calibration_calc_32[1][0]);
 
     SERIAL_PORT.println("Start Exercise");
     while (SERIAL_PORT.available()) SERIAL_PORT.read();
@@ -370,18 +398,29 @@ void quat_to_euler(float* angles, double q0, double q1, double q2, double q3){
 
 }
 
-void quats_fixed_to_double(double* result, uint32_t* fixed){
-    result[1] = (double)fixed[1] / 1073741824.0;
-    result[2] = (double)fixed[2] / 1073741824.0;
-    result[3] = (double)fixed[3] / 1073741824.0;
-    result[0] = sqrt(1.0 - ((result[1] * result[1]) + (result[2] * result[2]) + (result[3] * result[3])));
-}
+// void quats_fixed_to_double(double* result, uint32_t* fixed){
+//     result[1] = (double)fixed[1] / 1073741824.0;
+//     result[2] = (double)fixed[2] / 1073741824.0;
+//     result[3] = (double)fixed[3] / 1073741824.0;
+//     result[0] = sqrt(1.0 - ((result[1] * result[1]) + (result[2] * result[2]) + (result[3] * result[3])));
+// }
 
 void multiply_quats(double* result, double*q0, double* q1){
-    result[0] = q0[0]*q1[0] - q0[1]*q1[1] - q0[2]*q1[2] - q0[3]*q1[3];
-    result[1] = q0[0]*q1[1] + q0[1]*q0[0] + q0[2]*q1[3] - q0[3]*q1[2];
-    result[2] = q0[0]*q1[2] - q0[1]*q0[3] + q0[2]*q1[0] + q0[3]*q1[1];
-    result[3] = q0[0]*q1[3] + q0[1]*q0[2] - q0[2]*q1[1] + q0[3]*q1[0];
+    // result[0] = q0[0]*q1[0] - q0[1]*q1[1] - q0[2]*q1[2] - q0[3]*q1[3];
+    // result[1] = q0[0]*q1[1] + q0[1]*q1[0] + q0[2]*q1[3] - q0[3]*q1[2];
+    // result[2] = q0[0]*q1[2] - q0[1]*q1[3] + q0[2]*q1[0] + q0[3]*q1[1];
+    // result[3] = q0[0]*q1[3] + q0[1]*q1[2] - q0[2]*q1[1] + q0[3]*q1[0];
+
+    // z1 = a+bi+cj+dk
+    // z2 = e+fi+gj+hk
+    // z1 * z2= (a*e - b*f - c*g- d*h) + i (b*e + a*f + c*h - d*g) + j (a*g - b*h + c*e + d*f) + k (a*h + b*g - c*f + d*e)
+    
+    //Correctly multiplying by the conjugate
+    result[0] = q0[0]*q1[0] + q0[1]*q1[1] + q0[2]*q1[2] + q0[3]*q1[3];
+    result[1] = -q0[0]*q1[1] + q0[1]*q1[0] - q0[2]*q1[3] + q0[3]*q1[2];
+    result[2] = -q0[0]*q1[2] + q0[1]*q1[3] + q0[2]*q1[0] - q0[3]*q1[1];
+    result[3] = -q0[0]*q1[3] - q0[1]*q1[2] + q0[2]*q1[1] + q0[3]*q1[0];
+    
 }
 
 void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id, double* quats, double* other_data){
@@ -394,17 +433,29 @@ void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id, dou
         //quats[1] = (double)(data->Quat9.Data.Q1 - calibration_offsets[id][1]) / 1073741824.0;
         //quats[2] = (double)(data->Quat9.Data.Q2 - calibration_offsets[id][2]) / 1073741824.0;
         //quats[3] = (double)(data->Quat9.Data.Q3 - calibration_offsets[id][3]) / 1073741824.0;
-        //temp[1] = (double)(data->Quat9.Data.Q1) / 1073741824.0;
-        //temp[2] = (double)(data->Quat9.Data.Q2) / 1073741824.0;
-        //temp[3] = (double)(data->Quat9.Data.Q3) / 1073741824.0;
-        //temp[0] = sqrt(1.0 - ((temp[1] * temp[1]) + (temp[2] * temp[2]) + (temp[3] * temp[3])));
-        quats_fixed[1] = data->Quat9.Data.Q1;
-        quats_fixed[2] = data->Quat9.Data.Q2;
-        quats_fixed[3] = data->Quat9.Data.Q3;
-        quats_fixed_to_double(&temp[0], &quats_fixed[0]);
+        temp[1] = (double)(data->Quat9.Data.Q1) / 1073741824.0;
+        temp[2] = (double)(data->Quat9.Data.Q2) / 1073741824.0;
+        temp[3] = (double)(data->Quat9.Data.Q3) / 1073741824.0;
+        temp[0] = sqrt(1.0 - ((temp[1] * temp[1]) + (temp[2] * temp[2]) + (temp[3] * temp[3])));
+
+
+        // quats[0] = temp[0];
+        // quats[1] = temp[1];
+        // quats[2] = temp[2];
+        // quats[3] = temp[3];
+        SERIAL_PORT.println("QuatData");
+        SERIAL_PORT.println(temp[1]);
+        SERIAL_PORT.println(temp[2]);
+        SERIAL_PORT.println(temp[3]);
+        SERIAL_PORT.println(temp[0]);
+
+        // quats_fixed[1] = data->Quat9.Data.Q1;
+        // quats_fixed[2] = data->Quat9.Data.Q2;
+        // quats_fixed[3] = data->Quat9.Data.Q3;
+        // quats_fixed_to_double(&temp[0], &quats_fixed[0]);
 
         // todo: Multiplication is NON commutative we need to check if this order is correct
-        multiply_quats(quats, calibration_quat[id], &temp[0]);
+        multiply_quats(quats, calibration_quat[id], temp); //&temp[0]);
     } 
     if((data->header & DMP_header_bitmap_Compass_Calibr) > 0){
         other_data[3] = ((double)data->Compass_Calibr.Data.X)/(65536.0);
