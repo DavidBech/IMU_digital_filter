@@ -15,18 +15,18 @@
 
 clear; clc; 
 
-% arduinoObj = serialport("COM6", 115200); %Windows
-arduinoObj = serialport("/dev/cu.usbmodem11101",115200);
+%  arduinoObj = serialport("COM7", 115200); %Windows
+arduinoObj = serialport("/dev/cu.usbmodem21101",115200);
 
 %/ttys1",115200); % In the case you have a mac .KeySerial1
-time = datetime("now");
-fileName0 = sprintf("IMUExperiments/WithCal/imu0_%s.csv", time);
-fileName1 = sprintf("IMUExperiments/WithCal/imu1_%s.csv", time);
+% time = datetime("now");
+% fileName0 = sprintf("IMUExperiments/WithCal/imu0.csv", time);
+% fileName1 = sprintf("IMUExperiments/WithCal/imu1.csv", time);
 
-fileID = fopen(fileName0,'w');
-fileID2 = fopen(fileName1,'w');
-fprintf(fileID,'%s,%s,%s,%s,%s\n','time','IMU#','roll', 'pitch', 'yaw');
-fprintf(fileID2,'%s,%s,%s,%s,%s\n','time','IMU#','roll', 'pitch', 'yaw');
+fileID = fopen("UI Work/IMUExperiments/imu0.csv",'w');
+fileID2 = fopen("UI Work/IMUExperiments/imu1.csv",'w');
+fprintf(fileID,'%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n','time','IMU#','roll', 'pitch', 'yaw', 'accelx','accely','accelz','compassx','compassy','compassz');
+fprintf(fileID2,'%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n','time','IMU#','roll', 'pitch', 'yaw', 'accelx','accely','accelz','compassx','compassy','compassz');
 
 configureTerminator(arduinoObj,"CR/LF"); 
 flush(arduinoObj);
@@ -128,7 +128,7 @@ disp(readline(arduinoObj));
 write(arduinoObj,'r',"char");
 
 %wait for calibration message
-arduinoObj.Timeout = 30; %increase timeout
+arduinoObj.Timeout = 900; %increase timeout
 disp(readline(arduinoObj));
 disp(readline(arduinoObj));
 disp(readline(arduinoObj));
@@ -146,5 +146,5 @@ tic
 
 
 
-% fclose(fileID);
-% fclose(fileID2);
+%fclose(fileID);
+%fclose(fileID2);
