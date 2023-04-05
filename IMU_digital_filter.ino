@@ -20,7 +20,7 @@ double calibration_quat[2][4];
 ICM_20948_I2C myICM[2];
 
 void quat_to_euler(float* angles, double q0, double q1, double q2, double q3);
-void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, double* quats, double* other_data);
+bool process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, double* quats, double* other_data);
 void print_euler(double* quats, double* other_data, int id);
 void calibrate(unsigned sample);
 void measure();
@@ -126,20 +126,20 @@ void setup(){
     // Setting value can be calculated as follows:
     // Value = (DMP running rate / ODR ) - 1
     // E.g. For a 5Hz ODR rate when DMP is running at 55Hz, value = (55/5) - 1 = 10.
-    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Quat9, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Accel, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Gyro, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Gyro_Calibr, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Cpass, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Cpass_Calibr, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Quat9, 1) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Accel, 1) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Gyro, 1) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Gyro_Calibr, 1) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Cpass, 1) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Cpass_Calibr, 1) == ICM_20948_Stat_Ok); // Set to the maximum
 
     #ifdef USE_2_SENSORS
-    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Quat9, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Accel, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Gyro, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Gyro_Calibr, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Cpass, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Cpass_Calibr, 0) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Quat9, 1) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Accel, 1) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Gyro, 1) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Gyro_Calibr, 1) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Cpass, 1) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Cpass_Calibr, 1) == ICM_20948_Stat_Ok); // Set to the maximum
     #endif
 
     //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Accel, 0) == ICM_20948_Stat_Ok); // Set to the maximum
@@ -182,14 +182,14 @@ void setup(){
     }
 
     SERIAL_PORT.println("Start Drain");
-    unsigned drain_length = 1900;
+    unsigned drain_length =4900;
     for(unsigned i=0; i<drain_length; ++i){
         drain();
     }
 }
 
 void loop(){
-    unsigned calibration_length = 1900;
+    unsigned calibration_length = 2900;
     int read_result = -1;
     bool success = true; 
 
@@ -236,11 +236,11 @@ void loop(){
 
     calibration_quat[0][0] = sqrt(1.0 - ((calibration_quat[0][1] * calibration_quat[0][1]) + (calibration_quat[0][2] * calibration_quat[0][2]) + (calibration_quat[0][3] * calibration_quat[0][3])));
 
-    SERIAL_PORT.println("Calibration Value1");
-    SERIAL_PORT.println(calibration_quat[0][1]);
-    SERIAL_PORT.println(calibration_quat[0][2]);
-    SERIAL_PORT.println(calibration_quat[0][3]);
-    SERIAL_PORT.println(calibration_quat[0][0]);
+    // SERIAL_PORT.println("Calibration Value1");
+    // SERIAL_PORT.println(calibration_quat[0][1]);
+    // SERIAL_PORT.println(calibration_quat[0][2]);
+    // SERIAL_PORT.println(calibration_quat[0][3]);
+    // SERIAL_PORT.println(calibration_quat[0][0]);
 
 
     calibration_calc_32[1][1] = (int32_t)calibration_calc[1][1];
@@ -252,11 +252,11 @@ void loop(){
     calibration_quat[1][3] = (double)(calibration_calc_32[1][3]) / 1073741824.0;
     calibration_quat[1][0] = sqrt(1.0 - ((calibration_quat[1][1] * calibration_quat[1][1]) + (calibration_quat[1][2] * calibration_quat[1][2]) + (calibration_quat[1][3] * calibration_quat[1][3])));
 
-    SERIAL_PORT.println("Calibration Value2");
-    SERIAL_PORT.println(calibration_quat[1][1]);
-    SERIAL_PORT.println(calibration_quat[1][2]);
-    SERIAL_PORT.println(calibration_quat[1][3]);
-    SERIAL_PORT.println(calibration_quat[1][0]);
+    // SERIAL_PORT.println("Calibration Value2");
+    // SERIAL_PORT.println(calibration_quat[1][1]);
+    // SERIAL_PORT.println(calibration_quat[1][2]);
+    // SERIAL_PORT.println(calibration_quat[1][3]);
+    // SERIAL_PORT.println(calibration_quat[1][0]);
 
     // quats_fixed_to_double(&calibration_quat[0][0], &calibration_calc_32[0][0]);
     // quats_fixed_to_double(&calibration_quat[1][0], &calibration_calc_32[1][0]);
@@ -359,10 +359,13 @@ void measure(){
 
         status =  myICM[i].readDMPdataFromFIFO(&sensor_data[i]);
         if(status == ICM_20948_Stat_Ok || status == ICM_20948_Stat_FIFOMoreDataAvail){
-          process_data(&sensor_data[i], &myICM[i], i, quats, other_data);
-          
-          print_euler(quats, other_data, i);
-          wait = 0;
+          bool got_quats = process_data(&sensor_data[i], &myICM[i], i, quats, other_data);
+          if(got_quats){
+            print_euler(quats, other_data, i);
+            wait = 0;
+          } else {
+            wait &= 1;
+          }
         } else {
           wait &= 1;
         }
@@ -423,7 +426,8 @@ void multiply_quats(double* result, double*q0, double* q1){
     
 }
 
-void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id, double* quats, double* other_data){
+bool process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id, double* quats, double* other_data){
+  bool quat_data = 0;
   if ((myICM->status == ICM_20948_Stat_Ok) || (myICM->status == ICM_20948_Stat_FIFOMoreDataAvail))  {
     // We have asked for orientation data so we should receive Quat9
     if ((data->header & DMP_header_bitmap_Quat9) > 0) {
@@ -443,11 +447,11 @@ void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id, dou
         // quats[1] = temp[1];
         // quats[2] = temp[2];
         // quats[3] = temp[3];
-        SERIAL_PORT.println("QuatData");
-        SERIAL_PORT.println(temp[1]);
-        SERIAL_PORT.println(temp[2]);
-        SERIAL_PORT.println(temp[3]);
-        SERIAL_PORT.println(temp[0]);
+        // SERIAL_PORT.println("QuatData");
+        // SERIAL_PORT.println(temp[1]);
+        // SERIAL_PORT.println(temp[2]);
+        // SERIAL_PORT.println(temp[3]);
+        // SERIAL_PORT.println(temp[0]);
 
         // quats_fixed[1] = data->Quat9.Data.Q1;
         // quats_fixed[2] = data->Quat9.Data.Q2;
@@ -456,6 +460,7 @@ void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id, dou
 
         // todo: Multiplication is NON commutative we need to check if this order is correct
         multiply_quats(quats, calibration_quat[id], temp); //&temp[0]);
+        quat_data = 1;
     } 
     if((data->header & DMP_header_bitmap_Compass_Calibr) > 0){
         other_data[3] = ((double)data->Compass_Calibr.Data.X)/(65536.0);
@@ -478,7 +483,8 @@ void process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id, dou
     }
 
 
-  }
+  } 
+  return quat_data;  
 }
 
 void print_euler(double* quats, double* other_data, int id){
