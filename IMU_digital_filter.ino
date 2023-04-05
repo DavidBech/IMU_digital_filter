@@ -22,7 +22,7 @@ ICM_20948_I2C myICM[2];
 void quat_to_euler(float* angles, double q0, double q1, double q2, double q3);
 bool process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, double* quats, double* other_data);
 void print_euler(double* quats, double* other_data, int id);
-bool calibrate(unsigned sample);
+bool calibrate(int id, unsigned sample);
 void measure();
 bool drain();
 void multiply_quats(double* result, double*q0, double* q1);
@@ -196,7 +196,7 @@ void setup(){
 
 void loop(){
     //unsigned calibration_length = 2900;
-    unsigned calibration_length = 2000;
+    unsigned calibration_length = 50;
 
     int read_result = -1;
     bool success = true; 
@@ -221,23 +221,52 @@ void loop(){
     success &= (myICM[1].resetFIFO() == ICM_20948_Stat_Ok);
     #endif
 
-    if(!success){
-        SERIAL_PORT.println("Reset FIFO Failed");
-    }
+    //if(!success){
+    //    SERIAL_PORT.println("Reset FIFO Failed");
+    //}
 
     SERIAL_PORT.println("Start Calibration");
-    unsigned i = 0;
-    while(i < calibration_length){
-        if(!calibrate(i)){
-          continue;
+    unsigned sample_0, sample_1;
+    sample_0 = 0;
+    sample_1 = 0;
+    #ifdef USE_2_SENSORS
+    while(sample_0 < calibration_length || sample_1 < calibration_length){
+    #else
+    while(sample_0 < calibration_length){
+    #endif
+
+        bool sample_0_pass = 0;
+        bool sample_1_pass = 0;
+        sample_0_pass = calibrate(0, sample_0);
+        #ifdef USE_2_SENSORS
+        sample_1_pass = calibrate(1, sample_1);
+        #endif
+
+        if(sample_0_pass){
+          ++sample_0;
+        }
+        if(sample_1_pass){
+          ++sample_1;
         }
 
-        ++i;
+        if(!(sample_0_pass || sample_1_pass)){
+          delay(10);
+        }
     }
   
     calibration_calc_32[0][1] = (int32_t)calibration_calc[0][1];
     calibration_calc_32[0][2] = (int32_t)calibration_calc[0][2];
     calibration_calc_32[0][3] = (int32_t)calibration_calc[0][3];
+    
+    
+    SERIAL_PORT.print(calibration_calc_32[0][1]);
+    SERIAL_PORT.print(" ");
+    SERIAL_PORT.print(calibration_calc_32[0][2]);
+    SERIAL_PORT.print(" ");
+    SERIAL_PORT.print(calibration_calc_32[0][3]);
+    SERIAL_PORT.print(" ");
+    SERIAL_PORT.println();
+    
 
     calibration_quat[0][1] = (double)(calibration_calc_32[0][1]) / 1073741824.0;
     calibration_quat[0][2] = (double)(calibration_calc_32[0][2]) / 1073741824.0;
@@ -255,10 +284,19 @@ void loop(){
     // SERIAL_PORT.println(calibration_quat[0][3]);
     // SERIAL_PORT.println(calibration_quat[0][0]);
 
-
+    
     calibration_calc_32[1][1] = (int32_t)calibration_calc[1][1];
     calibration_calc_32[1][2] = (int32_t)calibration_calc[1][2];
     calibration_calc_32[1][3] = (int32_t)calibration_calc[1][3];
+
+    
+    SERIAL_PORT.print(calibration_calc_32[1][1]);
+    SERIAL_PORT.print(" ");
+    SERIAL_PORT.print(calibration_calc_32[1][2]);
+    SERIAL_PORT.print(" ");
+    SERIAL_PORT.print(calibration_calc_32[1][3]);
+    SERIAL_PORT.println();
+    
 
     calibration_quat[1][1] = (double)(calibration_calc_32[1][1]) / 1073741824.0;
     calibration_quat[1][2] = (double)(calibration_calc_32[1][2]) / 1073741824.0;
@@ -289,35 +327,30 @@ void loop(){
     //delay(100);
 }
 
-bool calibrate(unsigned sample){
-    icm_20948_DMP_data_t sensor_data[2];
+bool calibrate(int i, unsigned sample){
+    icm_20948_DMP_data_t sensor_data;
     ICM_20948_Status_e status;
-    bool wait = 1;
 
-    #ifdef USE_2_SENSORS
-    for(int i = 0; i < 2; ++i){
-    #else
-    int i = 0;
-    #endif
+    status = myICM[i].readDMPdataFromFIFO(&sensor_data);
+    if(status == ICM_20948_Stat_Ok || status == ICM_20948_Stat_FIFOMoreDataAvail){
+          if ((sensor_data.header & DMP_header_bitmap_Quat9) > 0) {
 
-        status = myICM[i].readDMPdataFromFIFO(&sensor_data[i]);
-        if(status == ICM_20948_Stat_Ok || status == ICM_20948_Stat_FIFOMoreDataAvail){
-            calibration_calc[i][1] = (sensor_data[i].Quat9.Data.Q1 + (calibration_calc[i][1]*sample))/(sample + 1);
-            calibration_calc[i][2] = (sensor_data[i].Quat9.Data.Q2 + (calibration_calc[i][2]*sample))/(sample + 1);
-            calibration_calc[i][3] = (sensor_data[i].Quat9.Data.Q3 + (calibration_calc[i][3]*sample))/(sample + 1);
-            wait = 0;
-        } else {
-            wait &= 1;
-        }
-    #ifdef USE_2_SENSORS
+            calibration_calc[i][1] = (sensor_data.Quat9.Data.Q1 + (calibration_calc[i][1]*sample))/(sample + 1);
+            calibration_calc[i][2] = (sensor_data.Quat9.Data.Q2 + (calibration_calc[i][2]*sample))/(sample + 1);
+            calibration_calc[i][3] = (sensor_data.Quat9.Data.Q3 + (calibration_calc[i][3]*sample))/(sample + 1);
+            
+            SERIAL_PORT.print(i);
+            SERIAL_PORT.print(" ");
+            SERIAL_PORT.print(sensor_data.Quat9.Data.Q1);
+            SERIAL_PORT.print(" ");
+            SERIAL_PORT.print(sensor_data.Quat9.Data.Q2);
+            SERIAL_PORT.print(" ");
+            SERIAL_PORT.print(sensor_data.Quat9.Data.Q3);
+            SERIAL_PORT.println();
+            return true;
+          }
     }
-    #endif
-
-    if(wait){
-        delay(10);
-        return false;
-    }
-    return true;
+    return false;
 }
 
 bool drain(){
@@ -475,7 +508,9 @@ bool process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, int id, dou
         // quats_fixed_to_double(&temp[0], &quats_fixed[0]);
 
         // todo: Multiplication is NON commutative we need to check if this order is correct
-        multiply_quats(quats, calibration_quat[id], temp); //&temp[0]);
+        //multiply_quats(quats, calibration_quat[id], temp); //&temp[0]);
+        multiply_quats(quats, temp, calibration_quat[id]); //&temp[0]);
+
         quat_data = 1;
     } 
     if((data->header & DMP_header_bitmap_Compass_Calibr) > 0){
