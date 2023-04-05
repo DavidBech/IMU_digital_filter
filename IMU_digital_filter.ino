@@ -22,9 +22,9 @@ ICM_20948_I2C myICM[2];
 void quat_to_euler(float* angles, double q0, double q1, double q2, double q3);
 bool process_data(icm_20948_DMP_data_t * data, ICM_20948_I2C* myICM, double* quats, double* other_data);
 void print_euler(double* quats, double* other_data, int id);
-void calibrate(unsigned sample);
+bool calibrate(unsigned sample);
 void measure();
-void drain();
+bool drain();
 void multiply_quats(double* result, double*q0, double* q1);
 void quats_fixed_to_double(double* result, uint32_t* fixed);
 
@@ -126,20 +126,20 @@ void setup(){
     // Setting value can be calculated as follows:
     // Value = (DMP running rate / ODR ) - 1
     // E.g. For a 5Hz ODR rate when DMP is running at 55Hz, value = (55/5) - 1 = 10.
-    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Quat9, 1) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Accel, 1) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Gyro, 1) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Gyro_Calibr, 1) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Cpass, 1) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Cpass_Calibr, 1) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Quat9, 5) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Accel, 5) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Gyro, 5) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Gyro_Calibr, 5) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Cpass, 5) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[0].setDMPODRrate(DMP_ODR_Reg_Cpass_Calibr, 5) == ICM_20948_Stat_Ok); // Set to the maximum
 
     #ifdef USE_2_SENSORS
-    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Quat9, 1) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Accel, 1) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Gyro, 1) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Gyro_Calibr, 1) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Cpass, 1) == ICM_20948_Stat_Ok); // Set to the maximum
-    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Cpass_Calibr, 1) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Quat9, 5) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Accel, 5) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Gyro, 5) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Gyro_Calibr, 5) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Cpass, 5) == ICM_20948_Stat_Ok); // Set to the maximum
+    success &= (myICM[1].setDMPODRrate(DMP_ODR_Reg_Cpass_Calibr, 5) == ICM_20948_Stat_Ok); // Set to the maximum
     #endif
 
     //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Accel, 0) == ICM_20948_Stat_Ok); // Set to the maximum
@@ -182,14 +182,22 @@ void setup(){
     }
 
     SERIAL_PORT.println("Start Drain");
-    unsigned drain_length =4900;
-    for(unsigned i=0; i<drain_length; ++i){
-        drain();
+    unsigned drain_length =500;
+    //unsigned drain_length = 0;
+    unsigned i = 0;
+    while(i < drain_length){
+        if(!drain()){
+          continue;
+        }
+
+        ++i;
     }
 }
 
 void loop(){
-    unsigned calibration_length = 2900;
+    //unsigned calibration_length = 2900;
+    unsigned calibration_length = 2000;
+
     int read_result = -1;
     bool success = true; 
 
@@ -218,8 +226,13 @@ void loop(){
     }
 
     SERIAL_PORT.println("Start Calibration");
-    for(unsigned i=0; i<calibration_length; ++i){
-        calibrate(i);
+    unsigned i = 0;
+    while(i < calibration_length){
+        if(!calibrate(i)){
+          continue;
+        }
+
+        ++i;
     }
   
     calibration_calc_32[0][1] = (int32_t)calibration_calc[0][1];
@@ -276,7 +289,7 @@ void loop(){
     //delay(100);
 }
 
-void calibrate(unsigned sample){
+bool calibrate(unsigned sample){
     icm_20948_DMP_data_t sensor_data[2];
     ICM_20948_Status_e status;
     bool wait = 1;
@@ -302,10 +315,12 @@ void calibrate(unsigned sample){
 
     if(wait){
         delay(10);
+        return false;
     }
+    return true;
 }
 
-void drain(){
+bool drain(){
     icm_20948_DMP_data_t data;
     ICM_20948_Status_e status;
     bool wait = 1;
@@ -317,10 +332,10 @@ void drain(){
     #endif
 
         status = myICM[i].readDMPdataFromFIFO(&data);
-        if(status == ICM_20948_Stat_FIFONoDataAvail ||  ICM_20948_Stat_FIFOIncompleteData){
-            wait &=1;
+        if(status == ICM_20948_Stat_Ok || status == ICM_20948_Stat_FIFOMoreDataAvail){
+            wait = 0;
         } else {
-            wait = 0; // Data was read
+            wait &= 1; 
         }
 
 
@@ -329,9 +344,10 @@ void drain(){
     #endif
 
     if(wait) {
-       delay(10);
+      delay(10);
+      return false;
     }
-
+    return true;
 }
 
 void measure(){
