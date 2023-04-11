@@ -1,9 +1,10 @@
-function readIMUData(src, ~)
+ function readIMUData(src, ~)
     
-    if(~isvalid(src.UserData.PlotObj1) || ~isvalid(src.UserData.PlotObj2)) %if the plot window closed turn off the callback (program ends)
-        configureCallback(src, "off");
+    if(isempty(src.UserData)) %if the plot window closed turn off the callback (program ends)
         disp("We left Joe Mama")
-        write(arduinoObj,'d',"char"); %stop exercise
+        %write(arduinoObj,'d',"char"); %stop exercise
+%         write(src,'d',"char"); %stop exercise
+%         configureCallback(src, "off");
         return;
     end
 %     disp("We entered Joe Mama")
